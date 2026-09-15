@@ -128,8 +128,8 @@ export class FirebaseQuizService {
     }, 3000);
   }
 
-  // 3-hour cleanup: remove stale rooms
-  public async cleanupOldRooms(): Promise<void> {
+  // Cleanup: 만든 지 3시간이 지났거나 참가자가 없는 방을 선생님 화면을 열 때 자동으로 삭제
+  public async cleanupOldRooms(activeRoomCode?: string): Promise<void> {
     if (!this.db) return;
     try {
       const roomsRef = ref(this.db, 'rooms');
@@ -141,17 +141,43 @@ export class FirebaseQuizService {
       const updates: Record<string, null> = {};
 
       snap.forEach((child) => {
+        const rCode = child.key;
+        if (!rCode) return;
+        // 현재 선생님이 사용 중인 방은 삭제하지 않음
+        if (activeRoomCode && rCode === activeRoomCode) return;
+
         const meta = child.child('meta').val() as RoomMeta | null;
-        if (meta && meta.createdAt && now - meta.createdAt > threeHoursMs) {
-          updates[child.key!] = null;
+        const playersSnap = child.child('players');
+        const playersVal = playersSnap.exists() ? playersSnap.val() : null;
+        const playerCount = playersVal && typeof playersVal === 'object' ? Object.keys(playersVal).length : 0;
+
+        const isOver3Hours = meta?.createdAt ? (now - meta.createdAt > threeHoursMs) : true;
+        const hasNoParticipants = playerCount === 0;
+
+        if (isOver3Hours || hasNoParticipants) {
+          console.log(`[Firebase 방 정리] 오래되었거나 참가자가 없는 방 삭제: ${rCode}`);
+          updates[rCode] = null;
         }
       });
 
       if (Object.keys(updates).length > 0) {
         await update(roomsRef, updates);
       }
+    } catch (err) {
+      console.warn('[Firebase] cleanupOldRooms 에러:', err);
+    }
+  }
+
+  // 방 존재 여부 확인 (meta 유무 검증)
+  public async checkRoomExists(roomCode: string): Promise<boolean> {
+    if (!isFirebaseConfigured()) return false;
+    const db = getFirebaseDb();
+    if (!db) return false;
+    try {
+      const snap = await get(ref(db, `rooms/${roomCode}/meta`));
+      return snap.exists();
     } catch {
-      // Ignore cleanup error if permissions restrict reading all rooms
+      return false;
     }
   }
 
@@ -215,8 +241,8 @@ export class FirebaseQuizService {
       // Start listening to the exact same rooms/{roomCode}/players
       await this.subscribeToRoom(roomCode, 'admin');
 
-      // Periodically trigger cleanup of old rooms
-      this.cleanupOldRooms().catch(() => {});
+      // 만든 지 3시간이 지났거나 참가자가 없는 방 자동 정리
+      this.cleanupOldRooms(roomCode).catch(() => {});
 
       return { success: true, roomCode };
     } catch (err: any) {
@@ -255,31 +281,20 @@ export class FirebaseQuizService {
       const metaRef = ref(db, `rooms/${roomCode}/meta`);
       const metaSnap = await get(metaRef);
 
-      // Auto-create meta if missing so students can connect smoothly
+      // 입력한 방이 Firebase에 없거나 meta가 없으면 입장을 막음 (players 생성 차단)
       if (!metaSnap.exists()) {
-        const now = this.getServerTime();
-        await set(metaRef, {
-          hostUid: 'host',
-          createdAt: now,
-          maxParticipants: 30,
-          status: 'lobby',
-          title: '하늘고래 퀴즈',
-        });
-        await set(ref(db, `rooms/${roomCode}/state`), {
-          currentQuestionIndex: 0,
-          status: 'lobby',
-          questionStartedAt: now,
-          timeLimit: 20,
-          revealAnswers: false,
-        });
-      } else {
-        const meta = metaSnap.val() as RoomMeta;
-        if (meta.status === 'ended') {
-          return {
-            success: false,
-            error: '이미 종료된 퀴즈 방입니다. 선생님께 새 방 코드를 문의해 주세요.',
-          };
-        }
+        return {
+          success: false,
+          error: '존재하지 않는 방입니다. 방 코드를 확인해 주세요.',
+        };
+      }
+
+      const meta = metaSnap.val() as RoomMeta;
+      if (meta.status === 'ended') {
+        return {
+          success: false,
+          error: '이미 종료된 퀴즈 방입니다. 선생님께 새 방 코드를 문의해 주세요.',
+        };
       }
 
       // Check current participant count

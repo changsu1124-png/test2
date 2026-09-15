@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { GameState } from '../types';
-import { Shield, User, ArrowRight, RefreshCw, AlertCircle, Info } from 'lucide-react';
+import { Shield, User, ArrowRight, RefreshCw, AlertCircle, Info, KeyRound } from 'lucide-react';
 
 interface LobbyViewProps {
   gameState: GameState;
@@ -21,7 +21,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   onEnterAsAdmin,
   isJoining = false,
   joinError = null,
-  roomCode = '1004',
+  roomCode = '',
   onRoomCodeChange,
   onClearError,
 }) => {
@@ -31,19 +31,31 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   const [selectedAvatar, setSelectedAvatar] = useState(() => {
     return typeof window !== 'undefined' ? localStorage.getItem('whale_quiz_avatar') || AVATARS[0] : AVATARS[0];
   });
-  const [inputRoomCode, setInputRoomCode] = useState(roomCode);
-  const [showRoomCodeInput, setShowRoomCodeInput] = useState(false);
+  
+  // If URL has ?room=, use it; otherwise start empty
+  const hasUrlRoomCode = Boolean(roomCode && roomCode.trim());
+  const [inputRoomCode, setInputRoomCode] = useState(roomCode || '');
+  const [showRoomCodeInput, setShowRoomCodeInput] = useState(!hasUrlRoomCode);
 
   useEffect(() => {
-    setInputRoomCode(roomCode);
+    if (roomCode) {
+      setInputRoomCode(roomCode);
+      setShowRoomCodeInput(false);
+    } else {
+      setShowRoomCodeInput(true);
+    }
   }, [roomCode]);
 
   const isFull = gameState.participants.length >= (gameState.maxParticipants || 30);
+  const activeRoom = (hasUrlRoomCode && !showRoomCodeInput) ? roomCode.trim() : inputRoomCode.trim();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const targetRoom = activeRoom;
+    if (!targetRoom) {
+      return;
+    }
     if (!studentName.trim() || isJoining || isFull) return;
-    const targetRoom = inputRoomCode.trim() || roomCode;
     if (onRoomCodeChange && targetRoom !== roomCode) {
       onRoomCodeChange(targetRoom);
     }
@@ -75,49 +87,76 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <User className="w-6 h-6 text-sky-600" />
             <h2 className="font-jua text-2xl sm:text-3xl text-slate-800">학생 / 학부모 참여</h2>
           </div>
-          <span
-            className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
-              isFull
-                ? 'bg-rose-100 text-rose-700 border-rose-300'
-                : 'bg-emerald-50 text-emerald-700 border-emerald-300'
-            }`}
-          >
-            {gameState.participants.length} / {gameState.maxParticipants || 30}명
-          </span>
+          {activeRoom && (
+            <span
+              className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+                isFull
+                  ? 'bg-rose-100 text-rose-700 border-rose-300'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+              }`}
+            >
+              {gameState.participants.length} / {gameState.maxParticipants || 30}명
+            </span>
+          )}
         </div>
 
-        {/* Room Code Badge */}
-        <div className="mb-3 bg-sky-50/90 border border-sky-200 rounded-2xl p-2.5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="bg-sky-500 text-white font-bold px-2.5 py-1 rounded-lg text-xs">
-              참여 방 코드
-            </span>
-            <span className="font-bold text-sky-900 font-mono text-xl tracking-wider">
-              {inputRoomCode || roomCode}
-            </span>
+        {/* Room Code Section */}
+        {hasUrlRoomCode && !showRoomCodeInput ? (
+          /* When joined via QR or ?room= URL */
+          <div className="mb-3 bg-sky-50/90 border border-sky-200 rounded-2xl p-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="bg-sky-500 text-white font-bold px-2.5 py-1 rounded-lg text-xs">
+                참여 방 코드
+              </span>
+              <span className="font-bold text-sky-900 font-mono text-xl tracking-wider">
+                {roomCode}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRoomCodeInput(true)}
+              className="text-xs text-sky-700 hover:text-sky-900 font-bold underline cursor-pointer p-1"
+            >
+              방 번호 변경
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowRoomCodeInput(!showRoomCodeInput)}
-            className="text-xs text-sky-700 hover:text-sky-900 font-bold underline cursor-pointer p-1"
-          >
-            {showRoomCodeInput ? '닫기' : '방 번호 변경'}
-          </button>
-        </div>
+        ) : (
+          /* When opened without ?room= URL -> Prominently ask for the 4-digit code first */
+          <div className="mb-4 p-3.5 bg-amber-50/90 border-2 border-amber-300 rounded-2xl space-y-2">
+            <label htmlFor="input-room-code" className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-amber-900">
+              <KeyRound className="w-4 h-4 text-amber-700" />
+              <span>선생님 화면의 방 코드 4자리를 입력해 주세요:</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="input-room-code"
+                type="text"
+                maxLength={6}
+                value={inputRoomCode}
+                onChange={(e) => setInputRoomCode(e.target.value.trim())}
+                placeholder="예: 6114"
+                className="w-full min-h-[48px] px-4 py-2 rounded-xl border-2 border-amber-400 font-mono font-black text-2xl text-center tracking-widest uppercase focus:outline-none focus:border-amber-600 bg-white shadow-inner"
+              />
+            </div>
+            <p className="text-[11px] text-amber-800">
+              * 선생님 칠판이나 TV 화면 상단에 표시된 4자리 방 번호를 입력해 주세요.
+            </p>
+          </div>
+        )}
 
-        {/* Expandable Room Code Input */}
-        {showRoomCodeInput && (
+        {/* Expandable Room Code Input when user clicks '방 번호 변경' */}
+        {hasUrlRoomCode && showRoomCodeInput && (
           <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5 animate-in fade-in">
             <label className="block text-xs font-bold text-slate-600">
-              선생님 화면에 표시된 4자리 방 코드:
+              선생님 화면의 방 코드 4자리를 입력해 주세요:
             </label>
             <div className="flex gap-2">
               <input
                 type="text"
                 maxLength={6}
                 value={inputRoomCode}
-                onChange={(e) => setInputRoomCode(e.target.value)}
-                placeholder="예: 1004"
+                onChange={(e) => setInputRoomCode(e.target.value.trim())}
+                placeholder="예: 6114"
                 className="flex-1 px-3 py-2 rounded-xl border border-slate-300 font-mono text-lg uppercase focus:outline-none focus:border-sky-500 bg-white"
               />
               <button
@@ -133,9 +172,6 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                 적용
               </button>
             </div>
-            <p className="text-xs text-slate-500">
-              * QR코드로 접속한 경우 방 코드가 자동으로 입력되어 있습니다.
-            </p>
           </div>
         )}
 
@@ -149,12 +185,12 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
         {/* Error Notification Banner */}
         {joinError && (
-          <div className="mb-3.5 p-3.5 bg-rose-50 border-2 border-rose-200 text-rose-800 rounded-2xl space-y-2">
+          <div className="mb-3.5 p-3.5 bg-rose-50 border-2 border-rose-300 text-rose-800 rounded-2xl space-y-2 animate-bounce">
             <div className="flex items-start gap-2 font-bold text-rose-700 text-sm">
               <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 mt-0.5" />
               <span>접속 오류</span>
             </div>
-            <p className="text-xs sm:text-sm text-rose-700 leading-relaxed">
+            <p className="text-xs sm:text-sm text-rose-700 leading-relaxed font-semibold">
               {joinError}
             </p>
             <div className="pt-1 flex items-center gap-2">
@@ -162,8 +198,8 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                 type="button"
                 onClick={() => {
                   if (onClearError) onClearError();
-                  if (studentName.trim()) {
-                    onJoinAsStudent(studentName.trim(), selectedAvatar, inputRoomCode || roomCode);
+                  if (studentName.trim() && activeRoom) {
+                    onJoinAsStudent(studentName.trim(), selectedAvatar, activeRoom);
                   }
                 }}
                 className="min-h-[48px] inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 transition-colors cursor-pointer shadow-xs"
@@ -173,7 +209,10 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setShowRoomCodeInput(true)}
+                onClick={() => {
+                  setShowRoomCodeInput(true);
+                  if (onClearError) onClearError();
+                }}
                 className="min-h-[48px] px-3 text-xs text-slate-600 hover:text-slate-900 underline font-semibold cursor-pointer"
               >
                 방 코드 변경
@@ -237,55 +276,39 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <button
               id="join-quiz-btn"
               type="submit"
-              disabled={!studentName.trim() || isJoining}
-              className={`w-full min-h-[52px] py-3.5 rounded-2xl font-jua text-2xl tracking-wide text-white transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer ${
-                studentName.trim() && !isJoining
-                  ? 'bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 active:scale-98 ring-2 ring-sky-300'
-                  : isJoining
-                  ? 'bg-sky-400 text-white cursor-wait animate-pulse'
-                  : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+              disabled={!studentName.trim() || !activeRoom || isJoining}
+              className={`w-full min-h-[52px] py-3.5 px-6 rounded-2xl font-jua text-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-98 ${
+                !studentName.trim() || !activeRoom || isJoining
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                  : 'bg-gradient-to-r from-sky-500 via-sky-600 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white shadow-sky-300/50 hover:shadow-xl'
               }`}
             >
               {isJoining ? (
                 <>
                   <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span>연결 중... (잠시만 기다려주세요)</span>
+                  <span>방 접속 확인 중...</span>
                 </>
               ) : (
                 <>
-                  <span>퀴즈 참가하기! 🚀</span>
-                  <ArrowRight className="w-6 h-6" />
+                  <span>{activeRoom ? `퀴즈 방(${activeRoom}) 참여하기` : '방 코드를 입력해 주세요'}</span>
+                  <ArrowRight className="w-5 h-5" />
                 </>
               )}
             </button>
           </form>
         )}
 
-        {/* Admin Switcher */}
-        <div className="mt-4 pt-3 border-t border-slate-100 text-center">
+        {/* Link to Teacher Mode */}
+        <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-center">
           <button
-            id="switch-admin-mode-btn"
             type="button"
             onClick={onEnterAsAdmin}
-            className="min-h-[48px] inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-500 hover:text-sky-700 px-3 py-2 rounded-xl hover:bg-sky-50 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-sky-700 transition-colors p-2 cursor-pointer"
           >
-            <Shield className="w-4 h-4" />
-            <span>선생님 화면으로 전환 (PIN 인증)</span>
+            <Shield className="w-3.5 h-3.5" />
+            <span>선생님이신가요? 선생님 모드로 전환 (PIN 필요)</span>
           </button>
         </div>
-      </div>
-
-      {/* Feature Badges */}
-      <div className="mt-3 flex flex-wrap justify-center items-center gap-2 text-xs font-semibold text-slate-600">
-        <span className="bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full border border-emerald-300 shadow-2xs font-bold">
-          🔓 로그인 불필요 (닉네임만 입력)
-        </span>
-        <span className="bg-white/80 px-3 py-1 rounded-full border border-sky-200 shadow-2xs">
-          📱 LTE / 5G / 와이파이 모두 지원
-        </span>
-        <span className="bg-white/80 px-3 py-1 rounded-full border border-sky-200 shadow-2xs">
-          ⏱️ 실시간 서버 타이머 동기화
-        </span>
       </div>
     </div>
   );

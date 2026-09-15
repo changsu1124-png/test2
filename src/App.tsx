@@ -13,6 +13,7 @@ import { requestScreenWakeLock, releaseScreenWakeLock } from './lib/wakeLock';
 import { Smartphone, Monitor, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
 
 const LOCAL_STORAGE_KEY_ROOM = 'whale_quiz_room_code';
+const LOCAL_STORAGE_KEY_TEACHER_ROOM = 'whale_quiz_teacher_room_code';
 const LOCAL_STORAGE_KEY_UID = 'whale_quiz_uid';
 const LOCAL_STORAGE_KEY_NAME = 'whale_quiz_name';
 const LOCAL_STORAGE_KEY_AVATAR = 'whale_quiz_avatar';
@@ -23,16 +24,14 @@ export default function App() {
     return typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_KEY_UID) : null;
   });
 
-  // Room Code: read from URL `?room=...` or localStorage, default to 1004
+  // Room Code: read from URL `?room=...` or leave empty (no default 1004)
   const [roomCode, setRoomCode] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const queryRoom = params.get('room');
       if (queryRoom) return queryRoom.trim();
-      const savedRoom = localStorage.getItem(LOCAL_STORAGE_KEY_ROOM);
-      if (savedRoom) return savedRoom.trim();
     }
-    return '1004';
+    return '';
   });
 
   const [gameState, setGameState] = useState<GameState>({
@@ -57,8 +56,46 @@ export default function App() {
 
   const firebaseServiceRef = useRef<FirebaseQuizService | null>(null);
 
+  // Handle Room Code Change & URL synchronization
+  const handleRoomCodeChange = useCallback((newCode: string) => {
+    const sanitized = newCode.trim();
+    setRoomCode(sanitized);
+
+    // Update URL parameter without full reload
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (sanitized) {
+        url.searchParams.set('room', sanitized);
+        localStorage.setItem(LOCAL_STORAGE_KEY_ROOM, sanitized);
+      } else {
+        url.searchParams.delete('room');
+      }
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
+
+  // Ensure Teacher Room Code is restored from localStorage or generated
+  useEffect(() => {
+    if (currentRole === 'admin') {
+      if (!roomCode) {
+        const savedTeacherRoom = localStorage.getItem(LOCAL_STORAGE_KEY_TEACHER_ROOM);
+        if (savedTeacherRoom) {
+          handleRoomCodeChange(savedTeacherRoom);
+        } else {
+          const newCode = FirebaseQuizService.generateRoomCode();
+          localStorage.setItem(LOCAL_STORAGE_KEY_TEACHER_ROOM, newCode);
+          handleRoomCodeChange(newCode);
+        }
+      } else {
+        localStorage.setItem(LOCAL_STORAGE_KEY_TEACHER_ROOM, roomCode);
+      }
+    }
+  }, [currentRole, roomCode, handleRoomCodeChange]);
+
   // Initialize Firebase Realtime Database Service
   useEffect(() => {
+    if (!roomCode) return; // Do not connect without a designated roomCode
+
     const service = new FirebaseQuizService();
     firebaseServiceRef.current = service;
 
@@ -76,7 +113,7 @@ export default function App() {
     );
 
     if (currentRole === 'admin') {
-      // Host creates or connects to the room
+      // 선생님 화면은 새로고침해도 새 방을 만들지 않고 기존 방 코드를 그대로 다시 불러옴
       service.createRoom(roomCode, gameState.maxParticipants || 30);
     } else {
       // Student subscribes to the room
@@ -116,21 +153,6 @@ export default function App() {
     };
   }, [gameState.status]);
 
-  // Handle Room Code Change
-  const handleRoomCodeChange = useCallback((newCode: string) => {
-    const sanitized = newCode.trim();
-    if (!sanitized) return;
-    setRoomCode(sanitized);
-
-    // Update URL parameter without full reload
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('room', sanitized);
-      window.history.replaceState({}, '', url.toString());
-      localStorage.setItem(LOCAL_STORAGE_KEY_ROOM, sanitized);
-    }
-  }, []);
-
   // Admin Access PIN check
   const requestAdminAccess = () => {
     if (isAdminAuthenticated) {
@@ -144,11 +166,25 @@ export default function App() {
     setIsAdminAuthenticated(true);
     setIsAdminPasswordModalOpen(false);
     setCurrentRole('admin');
+
+    const savedTeacherRoom = localStorage.getItem(LOCAL_STORAGE_KEY_TEACHER_ROOM);
+    if (savedTeacherRoom) {
+      handleRoomCodeChange(savedTeacherRoom);
+    } else if (!roomCode) {
+      const newCode = FirebaseQuizService.generateRoomCode();
+      localStorage.setItem(LOCAL_STORAGE_KEY_TEACHER_ROOM, newCode);
+      handleRoomCodeChange(newCode);
+    }
   };
 
-  // Student Join Handler (10-second timeout guaranteed)
+  // Student Join Handler (10-second timeout guaranteed & room existence verification)
   const handleJoinAsStudent = async (name: string, avatar: string, customRoomCode?: string) => {
-    const targetRoom = customRoomCode || roomCode;
+    const targetRoom = (customRoomCode || roomCode).trim();
+    if (!targetRoom) {
+      setJoinError('선생님 화면의 방 코드 4자리를 입력해 주세요.');
+      return;
+    }
+
     setIsJoining(true);
     setJoinError(null);
 
@@ -158,6 +194,14 @@ export default function App() {
 
     if (!firebaseServiceRef.current) {
       firebaseServiceRef.current = new FirebaseQuizService();
+    }
+
+    // 방 존재 여부 사전 검증 (없는 방으로 입장하여 빈 데이터가 생기지 않도록 방지)
+    const exists = await firebaseServiceRef.current.checkRoomExists(targetRoom);
+    if (!exists) {
+      setIsJoining(false);
+      setJoinError('존재하지 않는 방입니다. 방 코드를 확인해 주세요.');
+      return;
     }
 
     const result = await firebaseServiceRef.current.joinRoom(targetRoom, name, avatar);
@@ -205,12 +249,36 @@ export default function App() {
     }
   };
 
-  // Generate New 4-digit Room Code
-  const handleGenerateNewRoom = () => {
+  // Generate New 4-digit Room Code (이전 방 삭제 후 새 방 생성)
+  const handleGenerateNewRoom = async () => {
+    const prevRoomCode = roomCode;
     const newCode = FirebaseQuizService.generateRoomCode();
+
+    // 1. 이전 방 데이터 Firebase에서 삭제
+    if (firebaseServiceRef.current && prevRoomCode) {
+      await firebaseServiceRef.current.deleteRoom(prevRoomCode);
+    }
+
+    // 2. 새 방 코드 저장 및 설정
+    localStorage.setItem(LOCAL_STORAGE_KEY_TEACHER_ROOM, newCode);
     handleRoomCodeChange(newCode);
+
+    // 3. 새 방 생성
     if (firebaseServiceRef.current) {
-      firebaseServiceRef.current.createRoom(newCode, gameState.maxParticipants || 30);
+      await firebaseServiceRef.current.createRoom(newCode, gameState.maxParticipants || 30);
+    }
+  };
+
+  // 방 코드 변경 (기존 방 불러오기)
+  const handleChangeRoomCode = async (targetCode: string) => {
+    const sanitized = targetCode.trim();
+    if (!sanitized) return;
+
+    localStorage.setItem(LOCAL_STORAGE_KEY_TEACHER_ROOM, sanitized);
+    handleRoomCodeChange(sanitized);
+
+    if (firebaseServiceRef.current) {
+      await firebaseServiceRef.current.createRoom(sanitized, gameState.maxParticipants || 30);
     }
   };
 
@@ -333,6 +401,7 @@ export default function App() {
               onKickParticipant={handleKickParticipant}
               onSimulateStudent={handleSimulateStudent}
               onGenerateNewRoom={handleGenerateNewRoom}
+              onChangeRoomCode={handleChangeRoomCode}
               onDeleteRoom={handleDeleteRoom}
               roomCode={roomCode}
               isConnectedToDb={isConnected}

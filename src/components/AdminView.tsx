@@ -19,6 +19,7 @@ import {
   Trash2,
   Wifi,
   WifiOff,
+  FolderOpen,
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -33,6 +34,7 @@ interface AdminViewProps {
   onKickParticipant: (id: string) => void;
   onSimulateStudent?: () => void;
   onGenerateNewRoom: () => void;
+  onChangeRoomCode?: (code: string) => void;
   onDeleteRoom: () => void;
   roomCode: string;
   isConnectedToDb: boolean;
@@ -51,6 +53,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onKickParticipant,
   onSimulateStudent,
   onGenerateNewRoom,
+  onChangeRoomCode,
   onDeleteRoom,
   roomCode,
   isConnectedToDb,
@@ -58,17 +61,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [showLargeQrModal, setShowLargeQrModal] = useState(false);
+  const [isChangeRoomModalOpen, setIsChangeRoomModalOpen] = useState(false);
+  const [changeRoomInput, setChangeRoomInput] = useState('');
 
   const currentQ: QuizQuestion | undefined = gameState.currentQuestion;
 
-  // Complete join URL for QR and sharing
-  const joinUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/?room=${roomCode}`
-    : `https://test2-tawny-nu.vercel.app/?room=${roomCode}`;
+  // QR join URL is strictly pinned to production domain as requested
+  const joinUrl = `https://test2-tawny-nu.vercel.app/?room=${roomCode}`;
 
-  const shortUrlDisplay = typeof window !== 'undefined'
-    ? `${window.location.host}/?room=${roomCode}`
-    : `test2-tawny-nu.vercel.app/?room=${roomCode}`;
+  const shortUrlDisplay = `test2-tawny-nu.vercel.app/?room=${roomCode}`;
 
   // Sort participants by score descending
   const sortedParticipants = [...gameState.participants].sort((a, b) => b.score - a.score);
@@ -125,19 +126,33 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 mt-2">
-                <div className="flex items-center gap-2.5 bg-gradient-to-r from-sky-500 to-blue-600 text-white px-4 py-2 rounded-2xl shadow-md border-2 border-sky-300">
-                  <span className="text-xs sm:text-sm font-bold text-sky-100 uppercase tracking-wide">
-                    현재 구독 방 코드:
+              <div className="flex flex-wrap items-center gap-3 mt-3">
+                <div className="flex items-center gap-2.5 bg-gradient-to-r from-sky-600 via-sky-700 to-blue-800 text-white px-5 py-2.5 rounded-2xl shadow-lg border-2 border-sky-300">
+                  <span className="text-xs sm:text-sm font-bold text-sky-200 uppercase tracking-wide">
+                    현재 방 코드:
                   </span>
-                  <span className="font-mono font-black text-2xl sm:text-3xl text-amber-300 tracking-widest drop-shadow-xs">
+                  <span className="font-mono font-black text-3xl sm:text-4xl text-amber-300 tracking-widest drop-shadow-sm">
                     {roomCode}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 bg-sky-50 text-sky-900 px-3.5 py-2 rounded-2xl border border-sky-200 shadow-2xs">
+                {onChangeRoomCode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChangeRoomInput('');
+                      setIsChangeRoomModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-white hover:bg-sky-50 text-sky-800 px-4 py-2.5 rounded-2xl border-2 border-sky-300 transition-colors shadow-xs cursor-pointer min-h-[44px]"
+                    title="기존에 사용하던 방 코드를 직접 입력하여 불러옵니다"
+                  >
+                    <FolderOpen className="w-4 h-4 text-sky-600" />
+                    <span>방 코드 변경 (기존 방 불러오기)</span>
+                  </button>
+                )}
+                <div className="flex items-center gap-2 bg-sky-50 text-sky-900 px-4 py-2 rounded-2xl border border-sky-200 shadow-2xs">
                   <Users className="w-4 h-4 text-sky-600" />
                   <span className="text-xs sm:text-sm font-semibold">
-                    참여 인원: <strong className="text-base text-sky-800 font-extrabold">{totalStudents}</strong> / {gameState.maxParticipants || 30}명
+                    참여 학생 현황: <strong className="text-base text-sky-800 font-extrabold">{totalStudents}</strong> / {gameState.maxParticipants || 30}명
                   </span>
                 </div>
               </div>
@@ -168,7 +183,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               type="button"
               onClick={onGenerateNewRoom}
               className="flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2.5 rounded-xl border border-slate-300 transition-colors cursor-pointer min-h-[44px]"
-              title="새로운 4자리 방 코드로 방을 다시 생성합니다"
+              title="새로운 4자리 방 코드로 방을 다시 생성합니다 (이전 방 삭제)"
             >
               <PlusCircle className="w-4 h-4 text-slate-600" />
               <span>새 방 만들기</span>
@@ -192,7 +207,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         {/* Big Classroom QR Display in Lobby Mode */}
         {gameState.status === 'lobby' && (
           <div className="mt-5 p-5 sm:p-6 bg-gradient-to-br from-sky-50 via-white to-blue-50/50 rounded-3xl border-2 border-sky-300 shadow-sm flex flex-col md:flex-row items-center justify-center gap-8">
-            <div className="bg-white p-4 rounded-3xl border-3 border-sky-400 shadow-lg shrink-0 flex flex-col items-center">
+            <div className="bg-white p-5 rounded-3xl border-3 border-sky-400 shadow-lg shrink-0 flex flex-col items-center">
               <QRCodeSVG
                 value={joinUrl}
                 size={300}
@@ -200,7 +215,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 includeMargin={true}
                 className="rounded-xl"
               />
-              <p className="font-jua text-base text-sky-800 text-center mt-2">
+              <div className="mt-3 text-center">
+                <div className="text-xs font-bold text-slate-500">참여 방 코드</div>
+                <div className="font-mono font-black text-4xl text-sky-800 tracking-widest">
+                  {roomCode}
+                </div>
+              </div>
+              <p className="font-jua text-sm text-sky-800 text-center mt-1">
                 📸 기본 카메라 앱으로 비추면 즉시 참여!
               </p>
             </div>
@@ -230,7 +251,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
                 <div className="flex items-center justify-between pt-1 border-t border-slate-100">
                   <span className="text-sm font-bold text-slate-700">4자리 방 번호:</span>
-                  <span className="font-mono text-3xl font-extrabold text-sky-600 tracking-wider">
+                  <span className="font-mono text-4xl font-extrabold text-sky-600 tracking-wider">
                     {roomCode}
                   </span>
                 </div>
@@ -700,17 +721,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 includeMargin={true}
                 className="rounded-xl shadow-md"
               />
+              <div className="mt-3 text-center">
+                <div className="text-xs font-bold text-slate-500">참여 방 코드</div>
+                <div className="font-mono font-black text-5xl text-sky-800 tracking-widest">
+                  {roomCode}
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">
-              <p className="font-jua text-3xl text-sky-800">
-                방 코드: <span className="font-mono text-4xl text-sky-600">{roomCode}</span>
-              </p>
               <p className="text-sm font-mono text-slate-600 bg-slate-100 px-3 py-1.5 rounded-xl truncate">
                 {shortUrlDisplay}
               </p>
               <p className="text-xs text-slate-500">
-                구글 로그인 없이 카메라 앱으로 QR을 비추면 바로 참가합니다.
+                구글 로그인 없이 휴대폰 기본 카메라 앱으로 QR을 비추면 바로 참가합니다.
               </p>
             </div>
 
@@ -721,6 +745,70 @@ export const AdminView: React.FC<AdminViewProps> = ({
             >
               닫기
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal for Changing/Loading Room Code */}
+      {isChangeRoomModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full border-2 border-sky-300 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="w-5 h-5 text-sky-600" />
+                <h3 className="font-jua text-xl text-slate-800">
+                  기존 방 코드 불러오기
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsChangeRoomModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs sm:text-sm text-slate-600">
+              이전에 생성한 퀴즈 방 코드(예: 1004)를 입력하면 해당 방으로 즉시 전환하여 학부모/학생들과 동기화합니다.
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1">
+                불러올 방 코드 (4자리):
+              </label>
+              <input
+                type="text"
+                maxLength={6}
+                value={changeRoomInput}
+                onChange={(e) => setChangeRoomInput(e.target.value.trim())}
+                placeholder="예: 1004"
+                className="w-full min-h-[48px] px-4 py-2 rounded-xl border-2 border-sky-300 font-mono font-black text-2xl text-center tracking-widest uppercase focus:outline-none focus:border-sky-500 bg-white"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsChangeRoomModalOpen(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-600 font-bold text-sm cursor-pointer hover:bg-slate-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                disabled={!changeRoomInput.trim()}
+                onClick={() => {
+                  if (onChangeRoomCode && changeRoomInput.trim()) {
+                    onChangeRoomCode(changeRoomInput.trim());
+                  }
+                  setIsChangeRoomModalOpen(false);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm cursor-pointer disabled:opacity-50"
+              >
+                방 불러오기
+              </button>
+            </div>
           </div>
         </div>
       )}
