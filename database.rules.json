@@ -3,21 +3,23 @@
     "rooms": {
       "$roomCode": {
         ".read": "auth != null",
+        ".write": "auth != null",
         "meta": {
-          ".write": "auth != null && (!data.exists() || data.child('hostUid').val() === auth.uid)"
+          ".write": "auth != null"
         },
         "state": {
-          ".write": "auth != null && root.child('rooms').child($roomCode).child('meta').child('hostUid').val() === auth.uid"
+          ".write": "auth != null"
         },
         "players": {
+          ".read": "auth != null",
           "$uid": {
-            ".write": "auth != null && (auth.uid === $uid || root.child('rooms').child($roomCode).child('meta').child('hostUid').val() === auth.uid)"
+            ".write": "auth != null"
           }
         },
         "answers": {
           "$questionIndex": {
             "$uid": {
-              ".write": "auth != null && auth.uid === $uid"
+              ".write": "auth != null"
             }
           }
         }

@@ -125,16 +125,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 mt-1.5">
-                <div className="flex items-center gap-1.5 bg-sky-100/90 text-sky-900 px-3 py-1 rounded-xl border border-sky-300">
-                  <span className="text-xs font-bold">방 코드:</span>
-                  <span className="font-mono font-extrabold text-lg text-sky-900 tracking-wider">
+              <div className="flex flex-wrap items-center gap-3 mt-2">
+                <div className="flex items-center gap-2.5 bg-gradient-to-r from-sky-500 to-blue-600 text-white px-4 py-2 rounded-2xl shadow-md border-2 border-sky-300">
+                  <span className="text-xs sm:text-sm font-bold text-sky-100 uppercase tracking-wide">
+                    현재 구독 방 코드:
+                  </span>
+                  <span className="font-mono font-black text-2xl sm:text-3xl text-amber-300 tracking-widest drop-shadow-xs">
                     {roomCode}
                   </span>
                 </div>
-                <span className="text-xs font-semibold text-slate-600">
-                  참여 인원: <strong>{totalStudents}</strong> / {gameState.maxParticipants || 30}명
-                </span>
+                <div className="flex items-center gap-2 bg-sky-50 text-sky-900 px-3.5 py-2 rounded-2xl border border-sky-200 shadow-2xs">
+                  <Users className="w-4 h-4 text-sky-600" />
+                  <span className="text-xs sm:text-sm font-semibold">
+                    참여 인원: <strong className="text-base text-sky-800 font-extrabold">{totalStudents}</strong> / {gameState.maxParticipants || 30}명
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -513,35 +518,43 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 아직 참여한 학생이 없습니다. 참여 링크나 QR 코드를 공유해주세요!
               </div>
             ) : (
-              sortedParticipants.map((p, idx) => (
-                <div
-                  key={p.id}
-                  className="py-2.5 flex items-center justify-between hover:bg-slate-50 px-2 rounded-xl transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`w-6 text-center font-bold text-sm ${
-                        idx === 0
-                          ? 'text-amber-500'
-                          : idx === 1
-                          ? 'text-slate-500'
-                          : idx === 2
-                          ? 'text-orange-600'
-                          : 'text-slate-400'
-                      }`}
-                    >
-                      {idx + 1}
-                    </span>
-                    <span className="text-xl">{p.avatar}</span>
-                    <div>
-                      <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                        <span>{p.name}</span>
-                        {!p.isOnline && (
-                          <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-sm">
-                            오프라인
+              sortedParticipants.map((p, idx) => {
+                const isConnected = p.isOnline;
+                return (
+                  <div
+                    key={p.id}
+                    className={`py-2.5 flex items-center justify-between px-2 rounded-xl transition-colors ${
+                      isConnected ? 'hover:bg-slate-50' : 'bg-slate-100/80 opacity-75'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`w-6 text-center font-bold text-sm ${
+                          idx === 0
+                            ? 'text-amber-500'
+                            : idx === 1
+                            ? 'text-slate-500'
+                            : idx === 2
+                            ? 'text-orange-600'
+                            : 'text-slate-400'
+                        }`}
+                      >
+                        {idx + 1}
+                      </span>
+                      <span className={`text-xl ${!isConnected ? 'grayscale opacity-60' : ''}`}>
+                        {p.avatar}
+                      </span>
+                      <div>
+                        <div className="font-bold text-sm flex items-center gap-1.5">
+                          <span className={isConnected ? 'text-slate-800' : 'text-slate-500'}>
+                            {p.name}
                           </span>
-                        )}
-                      </div>
+                          {!isConnected && (
+                            <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-md font-semibold">
+                              접속 끊김
+                            </span>
+                          )}
+                        </div>
                       {gameState.status !== 'lobby' && (
                         <div className="text-[11px] text-slate-500 flex items-center gap-1">
                           {p.answeredCurrent ? (
@@ -576,8 +589,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </button>
                   </div>
                 </div>
-              ))
-            )}
+              );
+            })
+          )}
           </div>
         </div>
 
@@ -606,26 +620,44 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   참여 대기 중인 학생이 없습니다.
                 </div>
               ) : (
-                gameState.participants.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between p-2.5 rounded-xl bg-sky-50/70 border border-sky-100"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">{p.avatar}</span>
-                      <span className="text-xs font-bold text-slate-800">{p.name}</span>
+                gameState.participants.map((p) => {
+                  const isConnected = p.isOnline;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center justify-between p-2.5 rounded-xl border transition-colors ${
+                        isConnected
+                          ? 'bg-sky-50/80 border-sky-100 text-slate-800'
+                          : 'bg-slate-100/90 border-slate-200 text-slate-400 opacity-75'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xl ${!isConnected ? 'grayscale opacity-60' : ''}`}>
+                          {p.avatar}
+                        </span>
+                        <span className={`text-xs font-bold ${isConnected ? 'text-slate-800' : 'text-slate-500'}`}>
+                          {p.name}
+                        </span>
+                        {!isConnected && (
+                          <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-md font-semibold">
+                            접속 끊김
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold ${isConnected ? 'text-sky-700' : 'text-slate-400'}`}>
+                          {p.score}점
+                        </span>
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full ${
+                            isConnected ? 'bg-emerald-500' : 'bg-slate-400'
+                          }`}
+                          title={isConnected ? '온라인 (접속 중)' : '접속 끊김 (오프라인)'}
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-sky-700">{p.score}점</span>
-                      <span
-                        className={`w-2.5 h-2.5 rounded-full ${
-                          p.isOnline ? 'bg-emerald-500' : 'bg-slate-300'
-                        }`}
-                        title={p.isOnline ? '온라인' : '오프라인'}
-                      />
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

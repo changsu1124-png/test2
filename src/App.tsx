@@ -49,6 +49,7 @@ export default function App() {
 
   const [isConnected, setIsConnected] = useState(false);
   const [statusDetail, setStatusDetail] = useState<string>('');
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
@@ -68,6 +69,9 @@ export default function App() {
       (connected, detail) => {
         setIsConnected(connected);
         setStatusDetail(detail);
+      },
+      (errorMessage) => {
+        setSyncErrorMessage(errorMessage);
       }
     );
 
@@ -173,8 +177,11 @@ export default function App() {
     firebaseServiceRef.current.submitAnswer(roomCode, gameState.currentQuestionIndex, selectedAnswers);
   };
 
-  // Student Leave
-  const handleStudentLeave = () => {
+  // Student Leave - 나가기 클릭 시 players/{uid} 삭제 및 onDisconnect 해제
+  const handleStudentLeave = async () => {
+    if (firebaseServiceRef.current && participantId) {
+      await firebaseServiceRef.current.leaveRoom(roomCode, participantId);
+    }
     localStorage.removeItem(LOCAL_STORAGE_KEY_UID);
     localStorage.removeItem(LOCAL_STORAGE_KEY_NAME);
     localStorage.removeItem(LOCAL_STORAGE_KEY_AVATAR);
@@ -291,6 +298,14 @@ export default function App() {
           <span>
             <strong>Firebase 설정 안내:</strong> Vercel 환경 변수에 <code>VITE_FIREBASE_API_KEY</code>, <code>VITE_FIREBASE_DATABASE_URL</code> 등을 등록하면 모든 실시간 동기화가 활성화됩니다.
           </span>
+        </div>
+      )}
+
+      {/* Database Sync Error Banner */}
+      {syncErrorMessage && (
+        <div className="w-full bg-rose-100 border-b-2 border-rose-300 px-4 py-2.5 text-xs sm:text-sm text-rose-900 flex items-center justify-center gap-2 text-center animate-pulse">
+          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span className="font-semibold">{syncErrorMessage}</span>
         </div>
       )}
 

@@ -52,20 +52,31 @@ export const StudentWaitingView: React.FC<StudentWaitingViewProps> = ({
           </div>
 
           <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-1">
-            {gameState.participants.map((p) => (
-              <div
-                key={p.id}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${
-                  p.id === participant?.id
-                    ? 'bg-sky-500 text-white border-sky-600 shadow-xs'
-                    : 'bg-white text-slate-700 border-slate-200'
-                }`}
-              >
-                <span>{p.avatar}</span>
-                <span>{p.name}</span>
-                {p.id === participant?.id && <span className="text-[10px] bg-white/30 px-1 rounded-sm">나</span>}
-              </div>
-            ))}
+            {gameState.participants.map((p) => {
+              const isConnected = p.isOnline;
+              const isMe = p.id === participant?.id;
+              return (
+                <div
+                  key={p.id}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                    isMe
+                      ? 'bg-sky-500 text-white border-sky-600 shadow-xs'
+                      : isConnected
+                      ? 'bg-white text-slate-700 border-slate-200'
+                      : 'bg-slate-100 text-slate-400 border-slate-200 opacity-70'
+                  }`}
+                >
+                  <span className={!isConnected ? 'grayscale opacity-60' : ''}>{p.avatar}</span>
+                  <span>{p.name}</span>
+                  {isMe && <span className="text-[10px] bg-white/30 px-1 rounded-sm">나</span>}
+                  {!isConnected && !isMe && (
+                    <span className="text-[9px] bg-slate-200 text-slate-500 px-1 rounded-xs font-medium">
+                      접속 끊김
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
