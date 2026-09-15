@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GameState, Participant, WebSocketClientMessage, WebSocketServerMessage } from './types';
+import { GameState, Participant, WebSocketClientMessage } from './types';
 import { SkyWhaleBackground } from './components/SkyWhaleBackground';
 import { StudentQuizView } from './components/StudentQuizView';
 import { StudentWaitingView } from './components/StudentWaitingView';
@@ -7,7 +7,8 @@ import { AdminView } from './components/AdminView';
 import { LobbyView } from './components/LobbyView';
 import { RankingView } from './components/RankingView';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
-import { Shield, User, Smartphone, Monitor } from 'lucide-react';
+import { NetworkService, TransportMode } from './lib/networkService';
+import { Shield, User, Smartphone, Monitor, Radio } from 'lucide-react';
 
 const LOCAL_STORAGE_KEY_PARTICIPANT = 'whale_quiz_participant_id';
 const LOCAL_STORAGE_KEY_NAME = 'whale_quiz_student_name';
@@ -18,6 +19,16 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<'student' | 'admin'>('student');
   const [participantId, setParticipantId] = useState<string | null>(() => {
     return typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_KEY_PARTICIPANT) : null;
+  });
+
+  // Room Code: read from URL param `?room=...` or default to '1004'
+  const [roomCode, setRoomCode] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const queryRoom = params.get('room');
+      if (queryRoom) return queryRoom.trim().toLowerCase();
+    }
+    return '1004';
   });
 
   const [gameState, setGameState] = useState<GameState>({
@@ -33,14 +44,55 @@ export default function App() {
   });
 
   const [isConnected, setIsConnected] = useState(false);
+  const [transportMode, setTransportMode] = useState<TransportMode>('p2p');
+  const [statusDetail, setStatusDetail] = useState<string>('');
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const networkRef = useRef<NetworkService | null>(null);
+
+  // Initialize NetworkService
+  useEffect(() => {
+    const network = new NetworkService({
+      onStateUpdate: (state) => {
+        setGameState(state);
+      },
+      onJoinSuccess: (newParticipantId) => {
+        setParticipantId(newParticipantId);
+        setIsJoining(false);
+        setJoinError(null);
+        localStorage.setItem(LOCAL_STORAGE_KEY_PARTICIPANT, newParticipantId);
+      },
+      onError: (errorMessage) => {
+        setJoinError(errorMessage);
+        setIsJoining(false);
+      },
+      onConnectionStatusChange: (connected, mode, detail) => {
+        setIsConnected(connected);
+        setTransportMode(mode);
+        if (detail) setStatusDetail(detail);
+      },
+    });
+
+    networkRef.current = network;
+    network.connect(currentRole, roomCode);
+
+    return () => {
+      network.destroy();
+      networkRef.current = null;
+    };
+  }, [currentRole, roomCode]);
+
+  // Re-connect when role or room code changes
+  const handleRoomCodeChange = useCallback((newCode: string) => {
+    const sanitized = newCode.trim().toLowerCase();
+    setRoomCode(sanitized);
+    if (networkRef.current) {
+      networkRef.current.connect(currentRole, sanitized);
+    }
+  }, [currentRole]);
 
   // Helper to request entering admin mode with password protection
   const requestAdminAccess = () => {
@@ -59,115 +111,21 @@ export default function App() {
 
   // Send message helper
   const sendMessage = useCallback((msg: WebSocketClientMessage) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg));
+    if (networkRef.current) {
+      networkRef.current.sendMessage(msg);
     }
-  }, []);
-
-  // Connect to WebSocket Server
-  const connectWebSocket = useCallback(() => {
-    if (typeof window === 'undefined') return;
-
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {
-        // Ignore
-      }
-    }
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws?role=${currentRole}`;
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setIsConnected(true);
-      setJoinError(null);
-
-      // Start keep-alive ping
-      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      pingIntervalRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 15000);
-
-      // If student was already joined previously, re-join with stored name
-      const storedName = localStorage.getItem(LOCAL_STORAGE_KEY_NAME);
-      const storedAvatar = localStorage.getItem(LOCAL_STORAGE_KEY_AVATAR) || '🐳';
-      if (currentRole === 'student' && storedName) {
-        ws.send(JSON.stringify({
-          type: 'join',
-          name: storedName,
-          avatar: storedAvatar,
-        }));
-      }
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data: WebSocketServerMessage = JSON.parse(event.data);
-
-        if (data.type === 'state_update') {
-          setGameState(data.state);
-        } else if (data.type === 'join_success') {
-          setParticipantId(data.participantId);
-          setIsJoining(false);
-          setJoinError(null);
-          localStorage.setItem(LOCAL_STORAGE_KEY_PARTICIPANT, data.participantId);
-        } else if (data.type === 'error') {
-          setJoinError(data.message);
-          setIsJoining(false);
-        }
-      } catch (err) {
-        console.error('Failed to parse WebSocket message:', err);
-      }
-    };
-
-    ws.onclose = () => {
-      setIsConnected(false);
-      // Auto-reconnect after 2 seconds
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = setTimeout(() => {
-        connectWebSocket();
-      }, 2000);
-    };
-
-    ws.onerror = () => {
-      // ws.onclose will trigger reconnection
-    };
-  }, [currentRole]);
-
-  useEffect(() => {
-    connectWebSocket();
-
-    return () => {
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-    };
-  }, [connectWebSocket]);
-
-  // Initial HTTP state fallback fetch
-  useEffect(() => {
-    fetch('/api/state')
-      .then(res => res.json())
-      .then(data => {
-        setGameState(prev => ({ ...prev, ...data }));
-      })
-      .catch(() => {});
   }, []);
 
   // Handlers for Student
-  const handleJoinAsStudent = (name: string, avatar: string) => {
+  const handleJoinAsStudent = (name: string, avatar: string, customRoomCode?: string) => {
     setIsJoining(true);
     setJoinError(null);
     localStorage.setItem(LOCAL_STORAGE_KEY_NAME, name);
     localStorage.setItem(LOCAL_STORAGE_KEY_AVATAR, avatar);
+
+    if (customRoomCode && customRoomCode !== roomCode) {
+      handleRoomCodeChange(customRoomCode);
+    }
 
     sendMessage({
       type: 'join',
@@ -188,6 +146,8 @@ export default function App() {
     localStorage.removeItem(LOCAL_STORAGE_KEY_PARTICIPANT);
     localStorage.removeItem(LOCAL_STORAGE_KEY_NAME);
     setParticipantId(null);
+    setIsJoining(false);
+    setJoinError(null);
   };
 
   // Handlers for Admin
@@ -222,7 +182,7 @@ export default function App() {
   return (
     <SkyWhaleBackground>
       {/* Top Universal Role Switcher & Status Bar */}
-      <header className="w-full bg-white/70 backdrop-blur-md border-b border-sky-200 px-4 py-2 flex items-center justify-between z-30">
+      <header className="w-full bg-white/75 backdrop-blur-md border-b border-sky-200 px-4 py-2 flex items-center justify-between z-30">
         <div className="flex items-center gap-2">
           <span className="text-xl select-none">🐳</span>
           <span className="font-jua text-lg text-sky-900 font-bold">하늘고래 퀴즈</span>
@@ -233,18 +193,18 @@ export default function App() {
 
         {/* Device & Role Toggle Pill */}
         <div className="flex items-center gap-2">
-          {/* Connection status dot */}
+          {/* Connection status dot & transport pill */}
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/80 border border-slate-200 shadow-2xs"
-            title={isConnected ? '서버 연결 정상' : '서버 재연결 중...'}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/90 border border-slate-200 shadow-2xs"
+            title={statusDetail || (isConnected ? '정상 연결됨' : '연결 준비 중...')}
           >
             <span
               className={`w-2 h-2 rounded-full ${
-                isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
               }`}
             />
-            <span className="text-slate-600 hidden xs:inline">
-              {isConnected ? '온라인' : '재연결 중'}
+            <span className="text-slate-700 font-bold hidden xs:inline">
+              {transportMode === 'websocket' ? '웹소켓' : `P2P (방: ${roomCode})`}
             </span>
           </div>
 
@@ -302,6 +262,9 @@ export default function App() {
               onSetTimeLimit={handleSetTimeLimit}
               onKickParticipant={handleKickParticipant}
               onSimulateStudent={handleSimulateStudent}
+              roomCode={roomCode}
+              onRoomCodeChange={handleRoomCodeChange}
+              transportMode={transportMode}
             />
           )
         ) : (
@@ -314,6 +277,9 @@ export default function App() {
               onEnterAsAdmin={requestAdminAccess}
               isJoining={isJoining}
               joinError={joinError}
+              roomCode={roomCode}
+              onRoomCodeChange={handleRoomCodeChange}
+              onClearError={() => setJoinError(null)}
             />
           ) : gameState.status === 'lobby' ? (
             // Joined student waiting for quiz to start

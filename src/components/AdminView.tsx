@@ -29,6 +29,9 @@ interface AdminViewProps {
   onSetTimeLimit: (seconds: number) => void;
   onKickParticipant: (id: string) => void;
   onSimulateStudent?: () => void;
+  roomCode?: string;
+  onRoomCodeChange?: (code: string) => void;
+  transportMode?: string;
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
@@ -41,15 +44,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onSetTimeLimit,
   onKickParticipant,
   onSimulateStudent,
+  roomCode = '1004',
+  onRoomCodeChange,
+  transportMode = 'p2p',
 }) => {
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [isEditingRoom, setIsEditingRoom] = useState(false);
+  const [tempRoomCode, setTempRoomCode] = useState(roomCode);
 
   const currentQ: QuizQuestion | undefined = gameState.currentQuestion;
   
-  // Create student join URL (defaults to student view, completely public without login)
+  // Create student join URL with room code embedded
   const currentUrl = typeof window !== 'undefined' 
-    ? `${window.location.origin}${window.location.pathname}`
+    ? `${window.location.origin}${window.location.pathname}?room=${roomCode}`
     : '';
 
   // Sort participants by score descending
@@ -89,7 +97,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   {gameState.status === 'ended' && '퀴즈 종료'}
                 </span>
               </div>
-              <p className="text-xs text-slate-500">
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                  방 코드: <strong className="font-mono text-sm">{roomCode}</strong>
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-300">
+                  {transportMode === 'websocket' ? '⚡ 전용 웹소켓 서버' : '🌐 P2P 실시간 (Vercel 호환)'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
                 학생들은 문제를 풀기만 하고, 선생님이 퀴즈 시작·문제 넘김·순위표를 제어합니다.
               </p>
             </div>
