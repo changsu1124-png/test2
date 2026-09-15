@@ -201,10 +201,10 @@ export const StudentQuizView: React.FC<StudentQuizViewProps> = ({
                   type="button"
                   disabled={!isQuestionActive}
                   onClick={() => handleOptionClick(idx)}
-                  className={`relative flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl text-left font-semibold text-base sm:text-lg transition-all transform active:scale-[0.98] cursor-pointer disabled:cursor-default ${cardStyle}`}
+                  className={`relative flex items-center gap-3 p-4 rounded-2xl text-left font-semibold text-lg sm:text-xl min-h-[52px] transition-all transform active:scale-[0.98] cursor-pointer disabled:cursor-default ${cardStyle}`}
                 >
                   <div
-                    className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 shadow-xs ${
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-base shrink-0 shadow-xs ${
                       isSelected || (isReviewPhase && isCorrectAnswer)
                         ? 'bg-white text-slate-900'
                         : colorInfo.tag
@@ -212,7 +212,7 @@ export const StudentQuizView: React.FC<StudentQuizViewProps> = ({
                   >
                     {idx + 1}
                   </div>
-                  <span className="flex-1">{option}</span>
+                  <span className="flex-1 text-lg leading-snug">{option}</span>
 
                   {/* Review Indicators */}
                   {isReviewPhase && isCorrectAnswer && (

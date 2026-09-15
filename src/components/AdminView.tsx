@@ -1,22 +1,24 @@
 import React, { useState } from 'react';
 import { GameState, QuizQuestion } from '../types';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   Play,
   RotateCcw,
   SkipForward,
   Trophy,
   Users,
-  Clock,
   CheckCircle2,
   XCircle,
   Copy,
   Check,
-  Award,
-  ChevronRight,
   Eye,
   Sliders,
   Sparkles,
   QrCode,
+  PlusCircle,
+  Trash2,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -27,11 +29,14 @@ interface AdminViewProps {
   onShowRanking: () => void;
   onResetQuiz: () => void;
   onSetTimeLimit: (seconds: number) => void;
+  onSetMaxParticipants: (max: number) => void;
   onKickParticipant: (id: string) => void;
   onSimulateStudent?: () => void;
-  roomCode?: string;
-  onRoomCodeChange?: (code: string) => void;
-  transportMode?: string;
+  onGenerateNewRoom: () => void;
+  onDeleteRoom: () => void;
+  roomCode: string;
+  isConnectedToDb: boolean;
+  connectionDetail?: string;
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
@@ -42,191 +47,255 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onShowRanking,
   onResetQuiz,
   onSetTimeLimit,
+  onSetMaxParticipants,
   onKickParticipant,
   onSimulateStudent,
-  roomCode = '1004',
-  onRoomCodeChange,
-  transportMode = 'p2p',
+  onGenerateNewRoom,
+  onDeleteRoom,
+  roomCode,
+  isConnectedToDb,
+  connectionDetail,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [showQr, setShowQr] = useState(false);
-  const [isEditingRoom, setIsEditingRoom] = useState(false);
-  const [tempRoomCode, setTempRoomCode] = useState(roomCode);
+  const [showLargeQrModal, setShowLargeQrModal] = useState(false);
 
   const currentQ: QuizQuestion | undefined = gameState.currentQuestion;
-  
-  // Create student join URL with room code embedded
-  const currentUrl = typeof window !== 'undefined' 
-    ? `${window.location.origin}${window.location.pathname}?room=${roomCode}`
-    : '';
+
+  // Complete join URL for QR and sharing
+  const joinUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/?room=${roomCode}`
+    : `https://test2-tawny-nu.vercel.app/?room=${roomCode}`;
+
+  const shortUrlDisplay = typeof window !== 'undefined'
+    ? `${window.location.host}/?room=${roomCode}`
+    : `test2-tawny-nu.vercel.app/?room=${roomCode}`;
 
   // Sort participants by score descending
   const sortedParticipants = [...gameState.participants].sort((a, b) => b.score - a.score);
 
   const handleCopyLink = () => {
     if (typeof navigator !== 'undefined') {
-      navigator.clipboard.writeText(currentUrl);
+      navigator.clipboard.writeText(joinUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
-  // Calculate statistics for current question
   const totalStudents = gameState.participants.length;
-  const answeredStudents = gameState.participants.filter(p => p.answeredCurrent).length;
-  const correctStudents = gameState.participants.filter(p => p.isCorrect === true).length;
-  const incorrectStudents = gameState.participants.filter(p => p.isCorrect === false).length;
+  const answeredStudents = gameState.participants.filter((p) => p.answeredCurrent).length;
 
   return (
-    <div className="w-full max-w-5xl mx-auto flex flex-col flex-1 px-4 py-4 sm:py-6">
-      {/* Admin Top Banner */}
-      <div className="bg-white/95 backdrop-blur-md rounded-3xl p-5 shadow-lg border-2 border-sky-200 mb-5">
+    <div className="w-full max-w-6xl mx-auto flex flex-col flex-1 px-4 py-3 sm:py-5">
+      {/* Top Header Card */}
+      <div className="bg-white/95 backdrop-blur-md rounded-3xl p-5 sm:p-6 shadow-xl border-2 border-sky-200 mb-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-md text-2xl">
+          <div className="flex items-center gap-3.5">
+            <div className="w-14 h-14 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-md text-3xl">
               🐳
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-jua text-2xl text-slate-900">선생님 / 관리자 제어실</h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="font-jua text-2xl sm:text-3xl text-slate-900">선생님 / 퀴즈 제어실</h1>
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
                   {gameState.status === 'lobby' && '대기실 준비 중'}
                   {gameState.status === 'question' && `문제 진행 중 (${gameState.currentQuestionIndex + 1}/${gameState.totalQuestions})`}
-                  {gameState.status === 'review' && '오답/해설 확인 중'}
-                  {gameState.status === 'ranking' && '실시간 순위표 공개'}
+                  {gameState.status === 'review' && '정답 및 해설 공개 중'}
+                  {gameState.status === 'ranking' && '실시간 순위표 발표'}
                   {gameState.status === 'ended' && '퀴즈 종료'}
                 </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 mt-1">
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800 border border-sky-300">
-                  방 코드: <strong className="font-mono text-sm">{roomCode}</strong>
+                <span
+                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                    isConnectedToDb
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : 'bg-rose-50 text-rose-700 border-rose-300'
+                  }`}
+                  title={connectionDetail}
+                >
+                  {isConnectedToDb ? (
+                    <>
+                      <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Firebase 실시간 연결됨</span>
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff className="w-3.5 h-3.5 text-rose-600" />
+                      <span>연결 확인 중...</span>
+                    </>
+                  )}
                 </span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-300">
-                  {transportMode === 'websocket' ? '⚡ 전용 웹소켓 서버' : '🌐 P2P 실시간 (Vercel 호환)'}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 mt-1.5">
+                <div className="flex items-center gap-1.5 bg-sky-100/90 text-sky-900 px-3 py-1 rounded-xl border border-sky-300">
+                  <span className="text-xs font-bold">방 코드:</span>
+                  <span className="font-mono font-extrabold text-lg text-sky-900 tracking-wider">
+                    {roomCode}
+                  </span>
+                </div>
+                <span className="text-xs font-semibold text-slate-600">
+                  참여 인원: <strong>{totalStudents}</strong> / {gameState.maxParticipants || 30}명
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">
-                학생들은 문제를 풀기만 하고, 선생님이 퀴즈 시작·문제 넘김·순위표를 제어합니다.
-              </p>
             </div>
           </div>
 
-          {/* Quick Actions & URL Sharing */}
+          {/* Quick Actions */}
           <div className="flex items-center flex-wrap gap-2">
             <button
-              id="copy-join-link-btn"
               type="button"
               onClick={handleCopyLink}
-              className="flex items-center gap-1.5 text-xs font-bold bg-sky-50 hover:bg-sky-100 text-sky-700 px-3 py-2 rounded-xl border border-sky-200 transition-colors cursor-pointer shadow-2xs"
+              className="flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-sky-50 hover:bg-sky-100 text-sky-700 px-3.5 py-2.5 rounded-xl border border-sky-200 transition-colors cursor-pointer shadow-xs min-h-[44px]"
             >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? '링크 복사됨!' : '참여 링크 복사'}</span>
+              {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+              <span>{copied ? '링크 복사됨!' : '참여 주소 복사'}</span>
             </button>
 
             <button
-              id="toggle-qr-btn"
               type="button"
-              onClick={() => setShowQr(!showQr)}
-              className="flex items-center gap-1 text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl border border-slate-300 transition-colors cursor-pointer shadow-2xs"
+              onClick={() => setShowLargeQrModal(true)}
+              className="flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow-md min-h-[44px]"
             >
-              <QrCode className="w-3.5 h-3.5 text-slate-600" />
-              <span>QR코드</span>
+              <QrCode className="w-4 h-4" />
+              <span>교실용 대형 QR 열기 (300px+)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onGenerateNewRoom}
+              className="flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2.5 rounded-xl border border-slate-300 transition-colors cursor-pointer min-h-[44px]"
+              title="새로운 4자리 방 코드로 방을 다시 생성합니다"
+            >
+              <PlusCircle className="w-4 h-4 text-slate-600" />
+              <span>새 방 만들기</span>
             </button>
 
             {onSimulateStudent && (
               <button
-                id="simulate-student-btn"
                 type="button"
                 onClick={onSimulateStudent}
-                disabled={gameState.participants.length >= gameState.maxParticipants}
-                className="flex items-center gap-1.5 text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white px-3.5 py-2 rounded-xl transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
-                title="시연 및 테스트를 위해 가상의 학생 1명을 참여시킵니다"
+                disabled={gameState.participants.length >= (gameState.maxParticipants || 30)}
+                className="flex items-center gap-1.5 text-xs sm:text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white px-3.5 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50 min-h-[44px]"
+                title="시연을 위해 가상 학생 1명을 참여시킵니다"
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>+ 테스트 학생 추가</span>
+                <Sparkles className="w-4 h-4" />
+                <span>+ 테스트 참가자</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* QR Code Popup / Collapsible Box */}
-        {showQr && (
-          <div className="mt-4 p-5 bg-gradient-to-br from-sky-50 to-indigo-50/50 rounded-2xl border-2 border-sky-200 flex flex-col sm:flex-row items-center gap-5 text-center sm:text-left animate-in fade-in">
-            <div className="bg-white p-3.5 rounded-2xl border-2 border-sky-200 shadow-md shrink-0">
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(currentUrl)}`}
-                alt="학생 접속용 QR 코드"
-                className="w-36 h-36 sm:w-40 sm:h-40"
-                referrerPolicy="no-referrer"
+        {/* Big Classroom QR Display in Lobby Mode */}
+        {gameState.status === 'lobby' && (
+          <div className="mt-5 p-5 sm:p-6 bg-gradient-to-br from-sky-50 via-white to-blue-50/50 rounded-3xl border-2 border-sky-300 shadow-sm flex flex-col md:flex-row items-center justify-center gap-8">
+            <div className="bg-white p-4 rounded-3xl border-3 border-sky-400 shadow-lg shrink-0 flex flex-col items-center">
+              <QRCodeSVG
+                value={joinUrl}
+                size={300}
+                level="H"
+                includeMargin={true}
+                className="rounded-xl"
               />
-              <p className="text-[11px] font-bold text-sky-700 text-center mt-1.5">카메라로 스캔</p>
-            </div>
-            <div className="flex-1">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold mb-2">
-                <span>🔓 구글 로그인 없이 즉시 참가 가능</span>
-              </div>
-              <h4 className="font-jua text-xl text-slate-800 mb-1">
-                태블릿 / 스마트폰 카메라로 QR을 스캔하세요!
-              </h4>
-              <p className="text-xs text-slate-600 leading-relaxed mb-3">
-                학생들은 <strong>구글 계정이나 별도 로그인 없이</strong> 카메라로 QR을 비추면 바로 웹페이지가 열려 닉네임만 입력하고 참여할 수 있습니다.
+              <p className="font-jua text-base text-sky-800 text-center mt-2">
+                📸 기본 카메라 앱으로 비추면 즉시 참여!
               </p>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 text-xs font-mono bg-white px-3 py-2 rounded-xl border border-slate-200 select-all text-slate-700 truncate shadow-2xs">
-                  {currentUrl}
+            </div>
+
+            <div className="flex-1 max-w-lg space-y-4 text-center md:text-left">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-800 text-sm font-bold">
+                <span>🔓 로그인 없이 닉네임만 적으면 즉시 참여</span>
+              </div>
+
+              <div>
+                <h3 className="font-jua text-3xl sm:text-4xl text-slate-900 leading-tight">
+                  휴대폰 카메라로 QR을 스캔하세요!
+                </h3>
+                <p className="text-sm text-slate-600 mt-1">
+                  아이폰, 갤럭시, 카카오톡 카메라 등 어떤 기종이든 별도 앱 설치나 로그인 없이 바로 퀴즈에 참여합니다.
+                </p>
+              </div>
+
+              {/* Huge Room Code & Direct URL for manual input */}
+              <div className="p-4 bg-white rounded-2xl border-2 border-sky-200 shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">카메라가 안 될 때 직접 입력:</span>
+                  <span className="text-xs text-sky-700 font-bold">주소창에 입력</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer shrink-0"
-                >
-                  {copied ? '복사됨!' : '주소 복사'}
-                </button>
+                <div className="font-mono text-sm sm:text-base font-bold text-sky-700 bg-sky-50 px-3 py-1.5 rounded-xl truncate">
+                  {shortUrlDisplay}
+                </div>
+                <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                  <span className="text-sm font-bold text-slate-700">4자리 방 번호:</span>
+                  <span className="font-mono text-3xl font-extrabold text-sky-600 tracking-wider">
+                    {roomCode}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Time Limit Setting:
-            User Requirement: "문제를 풀 수 있는 시간은 제한적이되 조정할 수 있을 것" */}
-        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+        {/* Setting Controls: Time Limit & Max Participants */}
+        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4 text-xs sm:text-sm">
+          {/* Time Limit Setting */}
+          <div className="flex items-center gap-2 flex-wrap">
             <Sliders className="w-4 h-4 text-sky-600" />
-            <span className="text-xs sm:text-sm font-bold text-slate-700">
-              문제 제한 시간 설정 (현재: {gameState.timeLimit}초):
+            <span className="font-bold text-slate-700">
+              문제 제한 시간 (현재: {gameState.timeLimit}초):
             </span>
+            <div className="flex items-center gap-1.5">
+              {[10, 15, 20, 30].map((sec) => (
+                <button
+                  key={sec}
+                  type="button"
+                  onClick={() => onSetTimeLimit(sec)}
+                  className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer ${
+                    gameState.timeLimit === sec
+                      ? 'bg-sky-600 text-white shadow-xs ring-2 ring-sky-300'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {sec}초 {sec === 20 && '(기본)'}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {[5, 10, 15, 20, 30].map(sec => (
-              <button
-                key={sec}
-                id={`time-limit-btn-${sec}`}
-                type="button"
-                onClick={() => onSetTimeLimit(sec)}
-                className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  gameState.timeLimit === sec
-                    ? 'bg-sky-600 text-white shadow-xs ring-2 ring-sky-300'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {sec}초 {sec === 20 && '(기본)'}
-              </button>
-            ))}
+          {/* Max Participants Setting */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Users className="w-4 h-4 text-indigo-600" />
+            <span className="font-bold text-slate-700">
+              최대 인원 (현재: {gameState.maxParticipants || 30}명):
+            </span>
+            <div className="flex items-center gap-1.5">
+              {[20, 30, 40, 50].map((max) => (
+                <button
+                  key={max}
+                  type="button"
+                  onClick={() => onSetMaxParticipants(max)}
+                  className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer ${
+                    (gameState.maxParticipants || 30) === max
+                      ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-300'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {max}명 {max === 30 && '(기본)'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Control Buttons */}
+      {/* Main Game Control Buttons */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         {gameState.status === 'lobby' ? (
           <button
             id="admin-start-btn"
             type="button"
             onClick={onStartQuiz}
-            className="col-span-2 sm:col-span-2 py-3.5 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-jua text-xl rounded-2xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
+            className="col-span-2 sm:col-span-2 py-4 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-jua text-2xl rounded-2xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98 min-h-[56px]"
           >
-            <Play className="w-5 h-5 fill-white" />
+            <Play className="w-6 h-6 fill-white" />
             <span>퀴즈 시작하기 🚀</span>
           </button>
         ) : (
@@ -235,9 +304,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
             type="button"
             onClick={onNextQuestion}
             disabled={gameState.status === 'ended'}
-            className="col-span-2 sm:col-span-1 py-3.5 px-3 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-jua text-lg rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+            className="col-span-2 sm:col-span-1 py-4 px-3 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-jua text-xl rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 min-h-[56px]"
           >
-            <SkipForward className="w-5 h-5" />
+            <SkipForward className="w-6 h-6" />
             <span>다음 문제 ➡️</span>
           </button>
         )}
@@ -247,9 +316,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
           type="button"
           onClick={onShowReview}
           disabled={gameState.status === 'lobby'}
-          className="py-3.5 px-3 bg-amber-500 hover:bg-amber-600 text-white font-jua text-lg rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+          className="py-4 px-3 bg-amber-500 hover:bg-amber-600 text-white font-jua text-xl rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 min-h-[56px]"
         >
-          <Eye className="w-5 h-5" />
+          <Eye className="w-6 h-6" />
           <span>정답/해설 공개</span>
         </button>
 
@@ -257,9 +326,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
           id="admin-ranking-btn"
           type="button"
           onClick={onShowRanking}
-          className="py-3.5 px-3 bg-purple-500 hover:bg-purple-600 text-white font-jua text-lg rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+          className="py-4 px-3 bg-purple-500 hover:bg-purple-600 text-white font-jua text-xl rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[56px]"
         >
-          <Trophy className="w-5 h-5" />
+          <Trophy className="w-6 h-6" />
           <span>순위표 보기 🏆</span>
         </button>
 
@@ -267,14 +336,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
           id="admin-reset-btn"
           type="button"
           onClick={onResetQuiz}
-          className="py-3.5 px-3 bg-rose-500 hover:bg-rose-600 text-white font-jua text-lg rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+          className="py-4 px-3 bg-rose-500 hover:bg-rose-600 text-white font-jua text-xl rounded-2xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[56px]"
         >
-          <RotateCcw className="w-5 h-5" />
-          <span>퀴즈 초기화 🔄</span>
+          <RotateCcw className="w-6 h-6" />
+          <span>대기실로 복귀 🔄</span>
         </button>
       </div>
 
-      {/* Center Display: Question & Live Response Progress */}
+      {/* Center Question Display */}
       {currentQ && gameState.status !== 'lobby' && (
         <div className="bg-white/95 rounded-3xl p-6 shadow-md border-2 border-sky-100 mb-5">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -287,36 +356,35 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </span>
             </div>
 
-            {/* Answer Rate Status */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full">
                 제출 현황: {answeredStudents} / {totalStudents}명
               </span>
               {gameState.status === 'question' && (
-                <span className="text-xs font-bold text-rose-600 bg-rose-50 px-3 py-1 rounded-full animate-pulse border border-rose-200">
-                  남은 시간: {gameState.timeRemaining.toFixed(1)}초
+                <span className="text-sm font-bold text-rose-600 bg-rose-50 px-3.5 py-1 rounded-full animate-pulse border border-rose-200">
+                  남은 시간: {Math.max(0, Math.ceil(gameState.timeRemaining))}초
                 </span>
               )}
             </div>
           </div>
 
-          <h3 className="font-jua text-xl sm:text-2xl text-slate-900 mb-4">
+          <h3 className="font-jua text-2xl sm:text-3xl text-slate-900 mb-4">
             {currentQ.question}
           </h3>
 
-          {/* 4 Choices Admin Grid */}
+          {/* 4 Choices Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             {currentQ.options.map((option, idx) => {
-              const shouldShowCorrect = (gameState.status === 'review' || gameState.revealAnswers);
+              const shouldShowCorrect = gameState.status === 'review' || gameState.revealAnswers;
               const isCorrect = shouldShowCorrect && currentQ.correctAnswers.includes(idx);
-              const voteCount = gameState.participants.filter(p =>
+              const voteCount = gameState.participants.filter((p) =>
                 p.selectedAnswers.includes(idx)
               ).length;
 
               return (
                 <div
                   key={idx}
-                  className={`p-3.5 rounded-2xl border-2 flex items-center justify-between ${
+                  className={`p-4 rounded-2xl border-2 flex items-center justify-between ${
                     isCorrect
                       ? 'bg-emerald-50 border-emerald-400 text-emerald-950 font-bold'
                       : 'bg-slate-50 border-slate-200 text-slate-700'
@@ -324,21 +392,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 >
                   <div className="flex items-center gap-2.5">
                     <span
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold ${
                         isCorrect ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-700'
                       }`}
                     >
                       {idx + 1}
                     </span>
-                    <span className="text-sm sm:text-base">{option}</span>
+                    <span className="text-base sm:text-lg">{option}</span>
                     {isCorrect && (
-                      <span className="text-xs bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-full">
+                      <span className="text-xs bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
                         정답 (◯)
                       </span>
                     )}
                   </div>
 
-                  <span className="text-xs font-bold bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-2xs">
+                  <span className="text-xs font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-2xs">
                     {voteCount}명 선택
                   </span>
                 </div>
@@ -348,7 +416,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
           {/* Explanation if review */}
           {gameState.status === 'review' && currentQ.explanation && (
-            <div className="bg-sky-50 border border-sky-200 p-3.5 rounded-2xl text-sm text-sky-900 leading-relaxed font-sans">
+            <div className="bg-sky-50 border border-sky-200 p-4 rounded-2xl text-sm text-sky-900 leading-relaxed font-sans">
               <span className="font-bold text-sky-700 mr-1">💡 정답 해설:</span>
               {currentQ.explanation}
             </div>
@@ -356,9 +424,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
-      {/* Bottom Section: Live Ranking / Leaderboard & Participant Roster */}
+      {/* Bottom Section: Live Ranking & Participant List */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Leaderboard Column (2 cols on large) */}
+        {/* Leaderboard Column */}
         <div className="lg:col-span-2 bg-white/95 rounded-3xl p-5 sm:p-6 shadow-md border-2 border-sky-100 flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -372,13 +440,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </span>
           </div>
 
-          {/* Top 3 Podium (if >= 3 participants) */}
+          {/* Top 3 Podium */}
           {sortedParticipants.length > 0 && (
             <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5 text-center">
               {/* 2nd Place */}
               {sortedParticipants[1] ? (
                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex flex-col items-center justify-end">
-                  <span className="text-2xl mb-1">{sortedParticipants[1].avatar}</span>
+                  <span className="text-3xl mb-1">{sortedParticipants[1].avatar}</span>
                   <div className="text-xs font-bold text-slate-700 truncate w-full">
                     {sortedParticipants[1].name}
                   </div>
@@ -399,7 +467,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               {sortedParticipants[0] ? (
                 <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-3.5 flex flex-col items-center justify-end shadow-sm -translate-y-1">
                   <div className="text-amber-500 text-lg">👑</div>
-                  <span className="text-3xl mb-1">{sortedParticipants[0].avatar}</span>
+                  <span className="text-4xl mb-1">{sortedParticipants[0].avatar}</span>
                   <div className="text-sm font-bold text-slate-800 truncate w-full">
                     {sortedParticipants[0].name}
                   </div>
@@ -419,7 +487,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               {/* 3rd Place */}
               {sortedParticipants[2] ? (
                 <div className="bg-orange-50 border border-orange-200 rounded-2xl p-3 flex flex-col items-center justify-end">
-                  <span className="text-2xl mb-1">{sortedParticipants[2].avatar}</span>
+                  <span className="text-3xl mb-1">{sortedParticipants[2].avatar}</span>
                   <div className="text-xs font-bold text-slate-700 truncate w-full">
                     {sortedParticipants[2].name}
                   </div>
@@ -453,7 +521,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <div className="flex items-center gap-3">
                     <span
                       className={`w-6 text-center font-bold text-sm ${
-                        idx === 0 ? 'text-amber-500' : idx === 1 ? 'text-slate-500' : idx === 2 ? 'text-orange-600' : 'text-slate-400'
+                        idx === 0
+                          ? 'text-amber-500'
+                          : idx === 1
+                          ? 'text-slate-500'
+                          : idx === 2
+                          ? 'text-orange-600'
+                          : 'text-slate-400'
                       }`}
                     >
                       {idx + 1}
@@ -463,7 +537,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
                         <span>{p.name}</span>
                         {!p.isOnline && (
-                          <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.2 rounded-sm">오프라인</span>
+                          <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-sm">
+                            오프라인
+                          </span>
                         )}
                       </div>
                       {gameState.status !== 'lobby' && (
@@ -487,14 +563,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <span className="font-jua text-lg text-sky-600 font-bold">
+                    <span className="font-jua text-xl text-sky-600 font-bold">
                       {p.score}점
                     </span>
                     <button
                       type="button"
                       onClick={() => onKickParticipant(p.id)}
                       className="text-xs text-slate-400 hover:text-rose-600 p-1 rounded-sm cursor-pointer"
-                      title="학생 내보내기"
+                      title="참가자 내보내기"
                     >
                       ✕
                     </button>
@@ -505,55 +581,117 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
         </div>
 
-        {/* Participant Roster & Status Column */}
-        <div className="bg-white/95 rounded-3xl p-5 sm:p-6 shadow-md border-2 border-sky-100 flex flex-col">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Users className="w-5 h-5 text-sky-600" />
-              <h3 className="font-jua text-xl text-slate-800">
-                참여 학생 목록
-              </h3>
+        {/* Participant Roster & Room Control */}
+        <div className="bg-white/95 rounded-3xl p-5 sm:p-6 shadow-md border-2 border-sky-100 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-sky-600" />
+                <h3 className="font-jua text-xl text-slate-800">
+                  참여 학생 현황
+                </h3>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800 border border-sky-200">
+                {gameState.participants.length} / {gameState.maxParticipants || 30}명
+              </span>
             </div>
-            {/* User Requirement: "최대 20명이 참여할 수 있을것" */}
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800 border border-sky-200">
-              {gameState.participants.length} / {gameState.maxParticipants}명
-            </span>
+
+            <p className="text-xs text-slate-500 mb-3">
+              각자의 스마트폰으로 로그인 없이 참가한 학생들의 실시간 접속 상태입니다.
+            </p>
+
+            <div className="overflow-y-auto max-h-60 space-y-2 pr-1">
+              {gameState.participants.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-xs">
+                  참여 대기 중인 학생이 없습니다.
+                </div>
+              ) : (
+                gameState.participants.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-sky-50/70 border border-sky-100"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{p.avatar}</span>
+                      <span className="text-xs font-bold text-slate-800">{p.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-sky-700">{p.score}점</span>
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full ${
+                          p.isOnline ? 'bg-emerald-500' : 'bg-slate-300'
+                        }`}
+                        title={p.isOnline ? '온라인' : '오프라인'}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
-          <p className="text-xs text-slate-500 mb-3">
-            최대 20명의 학생이 각자의 태블릿이나 스마트폰으로 동시 접속할 수 있습니다.
-          </p>
-
-          <div className="flex-1 overflow-y-auto max-h-72 space-y-2 pr-1">
-            {gameState.participants.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs">
-                참여 대기 중인 학생이 없습니다.
-              </div>
-            ) : (
-              gameState.participants.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-sky-50/70 border border-sky-100"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{p.avatar}</span>
-                    <span className="text-xs font-bold text-slate-800">{p.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-sky-700">{p.score}점</span>
-                    <span
-                      className={`w-2.5 h-2.5 rounded-full ${
-                        p.isOnline ? 'bg-emerald-500' : 'bg-slate-300'
-                      }`}
-                      title={p.isOnline ? '온라인' : '오프라인'}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={onDeleteRoom}
+              className="w-full flex items-center justify-center gap-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 p-2 rounded-xl transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>현재 방 데이터 즉시 삭제 (초기화)</span>
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Fullscreen Big QR Modal */}
+      {showLargeQrModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full text-center border-4 border-sky-400 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="font-jua text-2xl text-slate-900">
+                📸 스마트폰 카메라로 QR 스캔
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowLargeQrModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-sky-50 p-4 rounded-3xl border-2 border-sky-200 inline-block">
+              <QRCodeSVG
+                value={joinUrl}
+                size={340}
+                level="H"
+                includeMargin={true}
+                className="rounded-xl shadow-md"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-jua text-3xl text-sky-800">
+                방 코드: <span className="font-mono text-4xl text-sky-600">{roomCode}</span>
+              </p>
+              <p className="text-sm font-mono text-slate-600 bg-slate-100 px-3 py-1.5 rounded-xl truncate">
+                {shortUrlDisplay}
+              </p>
+              <p className="text-xs text-slate-500">
+                구글 로그인 없이 카메라 앱으로 QR을 비추면 바로 참가합니다.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowLargeQrModal(false)}
+              className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white font-jua text-xl rounded-2xl cursor-pointer"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

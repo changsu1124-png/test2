@@ -19,8 +19,8 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Required password is "2026"
-    if (password === '2026') {
+    // Teacher PIN (default 1004 or 2026)
+    if (password === '1004' || password === '2026') {
       setPassword('');
       setError(false);
       onSuccess();
@@ -54,10 +54,10 @@ export const AdminPasswordModal: React.FC<AdminPasswordModalProps> = ({
             <Lock className="w-7 h-7" />
           </div>
           <h3 className="font-jua text-2xl text-slate-800">
-            선생님 모드 비밀번호
+            선생님 모드 PIN 번호
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            퀴즈를 관리하고 제어하기 위해 암호를 입력해주세요.
+            퀴즈 제어 화면으로 진입하려면 PIN 번호를 입력해 주세요. (기본: 1004)
           </p>
         </div>
 

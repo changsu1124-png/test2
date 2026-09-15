@@ -1,6 +1,6 @@
 {
   "name": "하늘고래 퀴즈",
-  "description": "태블릿과 모바일로 최대 20명이 실시간 참여하는 귀여운 고래 테마의 초등 퀴즈 게임",
+  "description": "스마트폰 카메라 QR 스캔으로 로그인 없이 바로 참여하는 실시간 하늘고래 퀴즈 게임",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

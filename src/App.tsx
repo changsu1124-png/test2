@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GameState, Participant, WebSocketClientMessage } from './types';
+import { GameState, Participant } from './types';
 import { SkyWhaleBackground } from './components/SkyWhaleBackground';
 import { StudentQuizView } from './components/StudentQuizView';
 import { StudentWaitingView } from './components/StudentWaitingView';
@@ -7,26 +7,30 @@ import { AdminView } from './components/AdminView';
 import { LobbyView } from './components/LobbyView';
 import { RankingView } from './components/RankingView';
 import { AdminPasswordModal } from './components/AdminPasswordModal';
-import { NetworkService, TransportMode } from './lib/networkService';
-import { Shield, User, Smartphone, Monitor, Radio } from 'lucide-react';
+import { FirebaseQuizService } from './lib/firebaseQuizService';
+import { isFirebaseConfigured } from './lib/firebase';
+import { requestScreenWakeLock, releaseScreenWakeLock } from './lib/wakeLock';
+import { Smartphone, Monitor, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
 
-const LOCAL_STORAGE_KEY_PARTICIPANT = 'whale_quiz_participant_id';
-const LOCAL_STORAGE_KEY_NAME = 'whale_quiz_student_name';
-const LOCAL_STORAGE_KEY_AVATAR = 'whale_quiz_student_avatar';
+const LOCAL_STORAGE_KEY_ROOM = 'whale_quiz_room_code';
+const LOCAL_STORAGE_KEY_UID = 'whale_quiz_uid';
+const LOCAL_STORAGE_KEY_NAME = 'whale_quiz_name';
+const LOCAL_STORAGE_KEY_AVATAR = 'whale_quiz_avatar';
 
 export default function App() {
-  // Mode: 'student' or 'admin'
   const [currentRole, setCurrentRole] = useState<'student' | 'admin'>('student');
   const [participantId, setParticipantId] = useState<string | null>(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_KEY_PARTICIPANT) : null;
+    return typeof window !== 'undefined' ? localStorage.getItem(LOCAL_STORAGE_KEY_UID) : null;
   });
 
-  // Room Code: read from URL param `?room=...` or default to '1004'
+  // Room Code: read from URL `?room=...` or localStorage, default to 1004
   const [roomCode, setRoomCode] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const queryRoom = params.get('room');
-      if (queryRoom) return queryRoom.trim().toLowerCase();
+      if (queryRoom) return queryRoom.trim();
+      const savedRoom = localStorage.getItem(LOCAL_STORAGE_KEY_ROOM);
+      if (savedRoom) return savedRoom.trim();
     }
     return '1004';
   });
@@ -37,64 +41,93 @@ export default function App() {
     timeLimit: 20,
     timeRemaining: 20,
     participants: [],
-    maxParticipants: 20,
+    maxParticipants: 30,
     selectedQuestionSet: 'all',
     totalQuestions: 15,
     revealAnswers: false,
   });
 
   const [isConnected, setIsConnected] = useState(false);
-  const [transportMode, setTransportMode] = useState<TransportMode>('p2p');
   const [statusDetail, setStatusDetail] = useState<string>('');
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isAdminPasswordModalOpen, setIsAdminPasswordModalOpen] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
 
-  const networkRef = useRef<NetworkService | null>(null);
+  const firebaseServiceRef = useRef<FirebaseQuizService | null>(null);
 
-  // Initialize NetworkService
+  // Initialize Firebase Realtime Database Service
   useEffect(() => {
-    const network = new NetworkService({
-      onStateUpdate: (state) => {
-        setGameState(state);
-      },
-      onJoinSuccess: (newParticipantId) => {
-        setParticipantId(newParticipantId);
-        setIsJoining(false);
-        setJoinError(null);
-        localStorage.setItem(LOCAL_STORAGE_KEY_PARTICIPANT, newParticipantId);
-      },
-      onError: (errorMessage) => {
-        setJoinError(errorMessage);
-        setIsJoining(false);
-      },
-      onConnectionStatusChange: (connected, mode, detail) => {
-        setIsConnected(connected);
-        setTransportMode(mode);
-        if (detail) setStatusDetail(detail);
-      },
-    });
+    const service = new FirebaseQuizService();
+    firebaseServiceRef.current = service;
 
-    networkRef.current = network;
-    network.connect(currentRole, roomCode);
+    service.setCallbacks(
+      (updatedState) => {
+        setGameState(updatedState);
+      },
+      (connected, detail) => {
+        setIsConnected(connected);
+        setStatusDetail(detail);
+      }
+    );
+
+    if (currentRole === 'admin') {
+      // Host creates or connects to the room
+      service.createRoom(roomCode, gameState.maxParticipants || 30);
+    } else {
+      // Student subscribes to the room
+      service.subscribeToRoom(roomCode, 'student');
+    }
 
     return () => {
-      network.destroy();
-      networkRef.current = null;
+      service.destroy();
+      firebaseServiceRef.current = null;
     };
   }, [currentRole, roomCode]);
 
-  // Re-connect when role or room code changes
-  const handleRoomCodeChange = useCallback((newCode: string) => {
-    const sanitized = newCode.trim().toLowerCase();
-    setRoomCode(sanitized);
-    if (networkRef.current) {
-      networkRef.current.connect(currentRole, sanitized);
+  // Screen Wake Lock & Visibility change management
+  useEffect(() => {
+    if (gameState.status === 'question') {
+      requestScreenWakeLock();
+    } else if (gameState.status === 'ended' || gameState.status === 'ranking') {
+      releaseScreenWakeLock();
     }
-  }, [currentRole]);
 
-  // Helper to request entering admin mode with password protection
+    const handleVisibility = () => {
+      const isVisible = document.visibilityState === 'visible';
+      if (isVisible) {
+        if (gameState.status === 'question') {
+          requestScreenWakeLock();
+        }
+        if (firebaseServiceRef.current) {
+          firebaseServiceRef.current.handleVisibilityChange(true);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      releaseScreenWakeLock();
+    };
+  }, [gameState.status]);
+
+  // Handle Room Code Change
+  const handleRoomCodeChange = useCallback((newCode: string) => {
+    const sanitized = newCode.trim();
+    if (!sanitized) return;
+    setRoomCode(sanitized);
+
+    // Update URL parameter without full reload
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', sanitized);
+      window.history.replaceState({}, '', url.toString());
+      localStorage.setItem(LOCAL_STORAGE_KEY_ROOM, sanitized);
+    }
+  }, []);
+
+  // Admin Access PIN check
   const requestAdminAccess = () => {
     if (isAdminAuthenticated) {
       setCurrentRole('admin');
@@ -109,146 +142,167 @@ export default function App() {
     setCurrentRole('admin');
   };
 
-  // Send message helper
-  const sendMessage = useCallback((msg: WebSocketClientMessage) => {
-    if (networkRef.current) {
-      networkRef.current.sendMessage(msg);
-    }
-  }, []);
-
-  // Handlers for Student
-  const handleJoinAsStudent = (name: string, avatar: string, customRoomCode?: string) => {
+  // Student Join Handler (10-second timeout guaranteed)
+  const handleJoinAsStudent = async (name: string, avatar: string, customRoomCode?: string) => {
+    const targetRoom = customRoomCode || roomCode;
     setIsJoining(true);
     setJoinError(null);
-    localStorage.setItem(LOCAL_STORAGE_KEY_NAME, name);
-    localStorage.setItem(LOCAL_STORAGE_KEY_AVATAR, avatar);
 
     if (customRoomCode && customRoomCode !== roomCode) {
       handleRoomCodeChange(customRoomCode);
     }
 
-    sendMessage({
-      type: 'join',
-      name,
-      avatar,
-    });
+    if (!firebaseServiceRef.current) {
+      firebaseServiceRef.current = new FirebaseQuizService();
+    }
+
+    const result = await firebaseServiceRef.current.joinRoom(targetRoom, name, avatar);
+
+    setIsJoining(false);
+    if (result.success && result.participantId) {
+      setParticipantId(result.participantId);
+      setJoinError(null);
+    } else {
+      setJoinError(result.error || '참여에 실패했습니다. 다시 시도해 주세요.');
+    }
   };
 
+  // Student Submit Answer
   const handleSubmitAnswer = (selectedAnswers: number[]) => {
-    sendMessage({
-      type: 'submit_answer',
-      questionIndex: gameState.currentQuestionIndex,
-      selectedAnswers,
-    });
+    if (!firebaseServiceRef.current) return;
+    firebaseServiceRef.current.submitAnswer(roomCode, gameState.currentQuestionIndex, selectedAnswers);
   };
 
+  // Student Leave
   const handleStudentLeave = () => {
-    localStorage.removeItem(LOCAL_STORAGE_KEY_PARTICIPANT);
+    localStorage.removeItem(LOCAL_STORAGE_KEY_UID);
     localStorage.removeItem(LOCAL_STORAGE_KEY_NAME);
+    localStorage.removeItem(LOCAL_STORAGE_KEY_AVATAR);
     setParticipantId(null);
     setIsJoining(false);
     setJoinError(null);
   };
 
-  // Handlers for Admin
-  const handleStartQuiz = () => sendMessage({ type: 'admin:start_quiz' });
-  const handleNextQuestion = () => sendMessage({ type: 'admin:next_question' });
-  const handleShowReview = () => sendMessage({ type: 'admin:show_review' });
-  const handleShowRanking = () => sendMessage({ type: 'admin:show_ranking' });
-  const handleResetQuiz = () => sendMessage({ type: 'admin:reset_quiz' });
-  const handleSetTimeLimit = (seconds: number) => sendMessage({ type: 'admin:set_time_limit', seconds });
-  const handleKickParticipant = (id: string) => sendMessage({ type: 'admin:kick_participant', participantId: id });
-
-  // Simulation test helper: adds simulated student for easy local/preview testing
-  const handleSimulateStudent = () => {
-    const names = ['김민우', '이지은', '강서준', '송하율', '최도윤', '윤서아', '임지호', '장예원'];
-    const avatars = ['🐬', '🐋', '🦭', '🐧', '🐢', '🐙', '🐠', '🦀'];
-    const availableNames = names.filter(
-      n => !gameState.participants.some(p => p.name.includes(n))
-    );
-    const chosenName = availableNames[0] || `테스트_${gameState.participants.length + 1}`;
-    const chosenAvatar = avatars[gameState.participants.length % avatars.length];
-
-    sendMessage({
-      type: 'join',
-      name: chosenName,
-      avatar: chosenAvatar,
-    });
+  // Admin Controls
+  const handleStartQuiz = () => firebaseServiceRef.current?.startQuiz(roomCode);
+  const handleNextQuestion = () => firebaseServiceRef.current?.nextQuestion(roomCode);
+  const handleShowReview = () => firebaseServiceRef.current?.showReview(roomCode);
+  const handleShowRanking = () => firebaseServiceRef.current?.showRanking(roomCode);
+  const handleResetQuiz = () => firebaseServiceRef.current?.resetQuiz(roomCode);
+  const handleSetTimeLimit = (seconds: number) => firebaseServiceRef.current?.setTimeLimit(roomCode, seconds);
+  const handleSetMaxParticipants = (max: number) => firebaseServiceRef.current?.setMaxParticipants(roomCode, max);
+  const handleKickParticipant = (id: string) => firebaseServiceRef.current?.kickParticipant(roomCode, id);
+  const handleDeleteRoom = () => {
+    if (window.confirm('현재 방의 모든 참가자 및 진행 기록을 삭제하시겠습니까?')) {
+      firebaseServiceRef.current?.deleteRoom(roomCode);
+    }
   };
 
-  // Current participant object
-  const currentParticipant = gameState.participants.find(p => p.id === participantId);
+  // Generate New 4-digit Room Code
+  const handleGenerateNewRoom = () => {
+    const newCode = FirebaseQuizService.generateRoomCode();
+    handleRoomCodeChange(newCode);
+    if (firebaseServiceRef.current) {
+      firebaseServiceRef.current.createRoom(newCode, gameState.maxParticipants || 30);
+    }
+  };
+
+  // Simulate Student for Demo & Testing
+  const handleSimulateStudent = async () => {
+    const names = ['김민우', '이지은', '강서준', '송하율', '최도윤', '윤서아', '임지호', '장예원'];
+    const avatars = ['🐬', '🐋', '🦭', '🐧', '🐢', '🐙', '🐠', '🦀'];
+    const count = gameState.participants.length;
+    const chosenName = names[count % names.length] + (count >= names.length ? `_${count + 1}` : '');
+    const chosenAvatar = avatars[count % avatars.length];
+
+    if (!firebaseServiceRef.current) return;
+    const simService = new FirebaseQuizService();
+    await simService.joinRoom(roomCode, chosenName, chosenAvatar);
+  };
+
+  // Current Participant
+  const currentParticipant = gameState.participants.find((p) => p.id === participantId);
 
   return (
     <SkyWhaleBackground>
-      {/* Top Universal Role Switcher & Status Bar */}
-      <header className="w-full bg-white/75 backdrop-blur-md border-b border-sky-200 px-4 py-2 flex items-center justify-between z-30">
+      {/* Top Header & Role Switcher */}
+      <header className="w-full bg-white/80 backdrop-blur-md border-b border-sky-200 px-4 py-2 flex items-center justify-between z-30">
         <div className="flex items-center gap-2">
-          <span className="text-xl select-none">🐳</span>
-          <span className="font-jua text-lg text-sky-900 font-bold">하늘고래 퀴즈</span>
-          <span className="hidden sm:inline-block text-xs text-slate-500 font-medium">
-            (실시간 다인 참여)
+          <span className="text-2xl select-none">🐳</span>
+          <span className="font-jua text-xl text-sky-900 font-bold">하늘고래 퀴즈</span>
+          <span className="hidden sm:inline-block text-xs font-semibold text-sky-700 bg-sky-100 px-2 py-0.5 rounded-full">
+            실시간 RTDB
           </span>
         </div>
 
-        {/* Device & Role Toggle Pill */}
-        <div className="flex items-center gap-2">
-          {/* Connection status dot & transport pill */}
+        {/* Status Pill & Role Switcher */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Connection Status Dot */}
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/90 border border-slate-200 shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/90 border border-slate-200 shadow-2xs"
             title={statusDetail || (isConnected ? '정상 연결됨' : '연결 준비 중...')}
           >
             <span
-              className={`w-2 h-2 rounded-full ${
-                isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+              className={`w-2.5 h-2.5 rounded-full ${
+                isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
               }`}
             />
             <span className="text-slate-700 font-bold hidden xs:inline">
-              {transportMode === 'websocket' ? '웹소켓' : `P2P (방: ${roomCode})`}
+              {isConnected ? `온라인 (방: ${roomCode})` : '연결 준비 중'}
             </span>
           </div>
 
-          {/* Role Switcher Button */}
+          {/* Role Switcher */}
           <div className="bg-slate-200/80 p-0.5 rounded-xl flex items-center shadow-inner">
             <button
               id="role-student-btn"
               type="button"
               onClick={() => setCurrentRole('student')}
-              className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 currentRole === 'student'
                   ? 'bg-white text-sky-700 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Smartphone className="w-3.5 h-3.5" />
-              <span>학생 모드</span>
+              <span>학생 화면</span>
             </button>
             <button
               id="role-admin-btn"
               type="button"
               onClick={requestAdminAccess}
-              className={`flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 currentRole === 'admin'
                   ? 'bg-sky-600 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Monitor className="w-3.5 h-3.5" />
-              <span>선생님 모드</span>
+              <span>선생님 화면</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Notice if Firebase env keys are not yet configured */}
+      {!isFirebaseConfigured() && (
+        <div className="w-full bg-amber-100 border-b border-amber-300 px-4 py-2 text-xs sm:text-sm text-amber-900 flex items-center justify-center gap-2 text-center">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            <strong>Firebase 설정 안내:</strong> Vercel 환경 변수에 <code>VITE_FIREBASE_API_KEY</code>, <code>VITE_FIREBASE_DATABASE_URL</code> 등을 등록하면 모든 실시간 동기화가 활성화됩니다.
+          </span>
+        </div>
+      )}
+
+      {/* Main Screen Views */}
       <main className="flex-1 flex flex-col items-center justify-center w-full">
         {currentRole === 'admin' ? (
-          // ADMIN VIEW
+          // TEACHER / ADMIN VIEW
           gameState.status === 'ranking' ? (
             <RankingView
               gameState={gameState}
               isAdmin={true}
-              onBackToGame={() => sendMessage({ type: 'admin:show_review' })}
+              onBackToGame={() => handleShowReview()}
               onResetQuiz={handleResetQuiz}
             />
           ) : (
@@ -260,17 +314,20 @@ export default function App() {
               onShowRanking={handleShowRanking}
               onResetQuiz={handleResetQuiz}
               onSetTimeLimit={handleSetTimeLimit}
+              onSetMaxParticipants={handleSetMaxParticipants}
               onKickParticipant={handleKickParticipant}
               onSimulateStudent={handleSimulateStudent}
+              onGenerateNewRoom={handleGenerateNewRoom}
+              onDeleteRoom={handleDeleteRoom}
               roomCode={roomCode}
-              onRoomCodeChange={handleRoomCodeChange}
-              transportMode={transportMode}
+              isConnectedToDb={isConnected}
+              connectionDetail={statusDetail}
             />
           )
         ) : (
           // STUDENT VIEW
           !currentParticipant ? (
-            // Student hasn't joined yet
+            // Not joined yet -> Lobby
             <LobbyView
               gameState={gameState}
               onJoinAsStudent={handleJoinAsStudent}
@@ -282,20 +339,20 @@ export default function App() {
               onClearError={() => setJoinError(null)}
             />
           ) : gameState.status === 'lobby' ? (
-            // Joined student waiting for quiz to start
+            // Joined and waiting for quiz to start
             <StudentWaitingView
               gameState={gameState}
               participant={currentParticipant}
               onLeave={handleStudentLeave}
             />
           ) : gameState.status === 'ranking' || gameState.status === 'ended' ? (
-            // Ranking view
+            // Final or intermediate ranking
             <RankingView
               gameState={gameState}
               isAdmin={false}
             />
           ) : (
-            // Student solving question
+            // Active quiz question
             <StudentQuizView
               gameState={gameState}
               participant={currentParticipant}
@@ -306,7 +363,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Admin Password Modal */}
+      {/* Admin Password Modal (PIN) */}
       <AdminPasswordModal
         isOpen={isAdminPasswordModalOpen}
         onClose={() => setIsAdminPasswordModalOpen(false)}
