@@ -29,7 +29,6 @@ interface AdminViewProps {
   onSetTimeLimit: (seconds: number) => void;
   onKickParticipant: (id: string) => void;
   onSimulateStudent?: () => void;
-  roomCode?: string;
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
@@ -42,17 +41,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onSetTimeLimit,
   onKickParticipant,
   onSimulateStudent,
-  roomCode = 'whale',
 }) => {
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
 
   const currentQ: QuizQuestion | undefined = gameState.currentQuestion;
   
-  // Create student join URL strictly based on window.location.origin and room code
-  // This guarantees when deployed on Vercel (e.g. https://my-quiz.vercel.app) it points to the exact deployed address
+  // Create student join URL (defaults to student view, completely public without login)
   const currentUrl = typeof window !== 'undefined' 
-    ? `${window.location.origin}?room=${encodeURIComponent(roomCode)}`
+    ? `${window.location.origin}${window.location.pathname}`
     : '';
 
   // Sort participants by score descending

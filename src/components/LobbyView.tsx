@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { GameState } from '../types';
-import { Sparkles, Shield, User, ArrowRight, AlertTriangle, RefreshCw, HelpCircle } from 'lucide-react';
-import { isFirebaseConfigured } from '../lib/firebase';
+import { Sparkles, Shield, User, ArrowRight } from 'lucide-react';
 
 interface LobbyViewProps {
   gameState: GameState;
@@ -9,9 +8,6 @@ interface LobbyViewProps {
   onEnterAsAdmin: () => void;
   isJoining?: boolean;
   joinError?: string | null;
-  connectionTimeout?: boolean;
-  onRetry?: () => void;
-  roomCode?: string;
 }
 
 const AVATARS = ['🐳', '🐬', '🐋', '🦭', '🐧', '🐢', '🐙', '🐠', '🦀', '⭐'];
@@ -22,9 +18,6 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   onEnterAsAdmin,
   isJoining = false,
   joinError = null,
-  connectionTimeout = false,
-  onRetry,
-  roomCode = 'whale',
 }) => {
   const [studentName, setStudentName] = useState('');
   const [selectedAvatar, setSelectedAvatar] = useState(AVATARS[0]);
@@ -74,39 +67,9 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           </span>
         </div>
 
-        {/* Firebase Configuration Warning for Vercel Deployments */}
-        {!isFirebaseConfigured && (
-          <div className="mb-4 p-4 bg-amber-50 border-2 border-amber-300 text-amber-900 rounded-2xl text-left text-xs space-y-1.5 shadow-sm">
-            <div className="flex items-center gap-1.5 font-bold text-amber-800 text-sm">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>Firebase 환경변수 설정 필요 (Vercel 배포 시)</span>
-            </div>
-            <p className="leading-relaxed">
-              Vercel Project Settings &gt; <strong>Environment Variables</strong>에 <code>VITE_FIREBASE_API_KEY</code>, <code>VITE_FIREBASE_DATABASE_URL</code> 등을 등록해야 실시간 퀴즈가 연결됩니다.
-            </p>
-          </div>
-        )}
-
-        {/* 10-Second Timeout or Join Error Alert */}
-        {(connectionTimeout || joinError) && (
-          <div className="mb-5 p-4 bg-rose-50 border-2 border-rose-300 text-rose-800 rounded-2xl text-center space-y-2 shadow-sm animate-in fade-in">
-            <div className="flex items-center justify-center gap-1.5 font-bold text-sm text-rose-700">
-              <AlertTriangle className="w-4 h-4" />
-              <span>접속 실패: 서버 연결 시간 초과</span>
-            </div>
-            <p className="text-xs text-rose-600 leading-relaxed">
-              {joinError || '10초 동안 서버 응답이 없었습니다. 인터넷 연결 또는 Firebase 실시간 데이터베이스 설정을 확인해주세요.'}
-            </p>
-            {onRetry && (
-              <button
-                type="button"
-                onClick={onRetry}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 mt-1 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-jua text-sm shadow-sm transition-all cursor-pointer active:scale-95"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>접속 실패: 다시 시도</span>
-              </button>
-            )}
+        {joinError && (
+          <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs sm:text-sm rounded-xl text-center">
+            {joinError}
           </div>
         )}
 
@@ -201,7 +164,10 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           ⏱️ 기본 20초 제한
         </span>
         <span className="bg-white/80 backdrop-blur-xs px-3 py-1 rounded-full border border-sky-200 shadow-2xs">
-          방 코드: {roomCode}
+          💯 기본 10점 (정답 2개는 20점!)
+        </span>
+        <span className="bg-white/80 backdrop-blur-xs px-3 py-1 rounded-full border border-sky-200 shadow-2xs">
+          🐳 맞히면 고래와 물놀이!
         </span>
       </div>
     </div>
