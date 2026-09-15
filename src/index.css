@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-jua {
+    font-family: 'Jua', sans-serif;
+  }
+  .font-dongle {
+    font-family: 'Dongle', sans-serif;
+  }
+  .font-gaegu {
+    font-family: 'Gaegu', cursive;
+  }
+}
+
+@keyframes water-fill {
+  0% {
+    height: 0%;
+    opacity: 0.8;
+  }
+  50% {
+    height: 60%;
+    opacity: 0.85;
+  }
+  85% {
+    height: 100%;
+    opacity: 0.95;
+  }
+  100% {
+    height: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes wave-motion {
+  0% {
+    transform: translateX(0) translateZ(0) scaleY(1);
+  }
+  50% {
+    transform: translateX(-25%) translateZ(0) scaleY(0.9);
+  }
+  100% {
+    transform: translateX(-50%) translateZ(0) scaleY(1);
+  }
+}
+
+@keyframes float-whale {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(-3deg);
+  }
+}
+
+@keyframes bubble-rise {
+  0% {
+    transform: translateY(100%) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.8;
+  }
+  80% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-100px) scale(1.1);
+    opacity: 0;
+  }
+}
+
+.animate-whale-float {
+  animation: float-whale 3.5s ease-in-out infinite;
+}
+
+.animate-bubble-rise {
+  animation: bubble-rise 4s infinite linear;
+}
+
+.animate-wave {
+  animation: wave-motion 6s linear infinite;
+}
